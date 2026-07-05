@@ -12,6 +12,13 @@ use super::core_audio::CoreAudioCapture;
 #[cfg(target_os = "macos")]
 use log::info;
 
+#[cfg(target_os = "windows")]
+use futures_channel::mpsc as win_mpsc;
+#[cfg(target_os = "windows")]
+use cpal::traits::StreamTrait;
+#[cfg(target_os = "windows")]
+use log::{info, warn};
+
 /// System audio capture using Core Audio tap (macOS) or CPAL (other platforms)
 pub struct SystemAudioCapture {
     _host: cpal::Host,
@@ -96,9 +103,142 @@ impl SystemAudioCapture {
             })
         }
 
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(target_os = "windows")]
         {
-            // For non-macOS platforms, you would implement WASAPI/ALSA loopback here
+            // WASAPI loopback: cpal transparently enables loopback capture when an
+            // input stream is built on an *output* (render) device, so we capture
+            // whatever is playing on the speakers (the far side of any meeting).
+            //
+            // A cpal Stream is `!Send`, so it must be created and kept alive on a
+            // dedicated thread; that thread forwards f32 samples over a channel that
+            // this SystemAudioStream drains (same shape as the macOS Core Audio path).
+            info!("Starting WASAPI loopback system capture (Windows)");
+
+            let (tx, rx) = win_mpsc::unbounded::<Vec<f32>>();
+            let (drop_tx, drop_rx) = std::sync::mpsc::channel::<()>();
+            let (rate_tx, rate_rx) = std::sync::mpsc::channel::<Result<u32, String>>();
+
+            std::thread::spawn(move || {
+                let build = || -> Result<(cpal::Stream, u32)> {
+                    let host = cpal::default_host();
+                    let device = host
+                        .default_output_device()
+                        .ok_or_else(|| anyhow::anyhow!("no default output device for loopback"))?;
+                    let supported = device
+                        .default_output_config()
+                        .map_err(|e| anyhow::anyhow!("default_output_config failed: {}", e))?;
+                    let sample_rate = supported.sample_rate().0;
+                    let sample_format = supported.sample_format();
+                    let config: cpal::StreamConfig = supported.into();
+
+                    let err_fn = |e| {
+                        warn!("WASAPI loopback stream error: {}", e);
+                    };
+
+                    // Build an input stream on the render device -> loopback capture.
+                    // Convert every supported sample format to f32 (matches the rest
+                    // of meetily's capture pipeline).
+                    let stream = match sample_format {
+                        cpal::SampleFormat::F32 => {
+                            let tx = tx.clone();
+                            device.build_input_stream(
+                                &config,
+                                move |data: &[f32], _: &cpal::InputCallbackInfo| {
+                                    let _ = tx.unbounded_send(data.to_vec());
+                                },
+                                err_fn,
+                                None,
+                            )
+                        }
+                        cpal::SampleFormat::I16 => {
+                            let tx = tx.clone();
+                            device.build_input_stream(
+                                &config,
+                                move |data: &[i16], _: &cpal::InputCallbackInfo| {
+                                    let f: Vec<f32> =
+                                        data.iter().map(|&s| s as f32 / i16::MAX as f32).collect();
+                                    let _ = tx.unbounded_send(f);
+                                },
+                                err_fn,
+                                None,
+                            )
+                        }
+                        cpal::SampleFormat::I32 => {
+                            let tx = tx.clone();
+                            device.build_input_stream(
+                                &config,
+                                move |data: &[i32], _: &cpal::InputCallbackInfo| {
+                                    let f: Vec<f32> =
+                                        data.iter().map(|&s| s as f32 / i32::MAX as f32).collect();
+                                    let _ = tx.unbounded_send(f);
+                                },
+                                err_fn,
+                                None,
+                            )
+                        }
+                        cpal::SampleFormat::U8 => {
+                            let tx = tx.clone();
+                            device.build_input_stream(
+                                &config,
+                                move |data: &[u8], _: &cpal::InputCallbackInfo| {
+                                    let f: Vec<f32> = data
+                                        .iter()
+                                        .map(|&s| (s as f32 - 128.0) / 128.0)
+                                        .collect();
+                                    let _ = tx.unbounded_send(f);
+                                },
+                                err_fn,
+                                None,
+                            )
+                        }
+                        other => {
+                            return Err(anyhow::anyhow!(
+                                "unsupported loopback sample format: {:?}",
+                                other
+                            ))
+                        }
+                    }
+                    .map_err(|e| anyhow::anyhow!("build loopback input stream: {}", e))?;
+
+                    stream
+                        .play()
+                        .map_err(|e| anyhow::anyhow!("play loopback stream: {}", e))?;
+                    Ok((stream, sample_rate))
+                };
+
+                match build() {
+                    Ok((stream, sample_rate)) => {
+                        let _ = rate_tx.send(Ok(sample_rate));
+                        // Keep the (!Send) stream alive on this thread until the
+                        // SystemAudioStream is dropped (which drops drop_tx).
+                        let _ = drop_rx.recv();
+                        drop(stream);
+                        info!("WASAPI loopback capture stopped");
+                    }
+                    Err(e) => {
+                        let _ = rate_tx.send(Err(e.to_string()));
+                    }
+                }
+            });
+
+            let sample_rate = rate_rx
+                .recv()
+                .map_err(|_| anyhow::anyhow!("loopback capture thread exited before init"))?
+                .map_err(|e| anyhow::anyhow!("failed to start loopback capture: {}", e))?;
+
+            let receiver = rx.map(futures_util::stream::iter).flatten();
+            info!("WASAPI loopback capture started ({} Hz)", sample_rate);
+
+            Ok(SystemAudioStream {
+                drop_tx,
+                sample_rate,
+                receiver: Box::pin(receiver),
+            })
+        }
+
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        {
+            // Linux/other: ALSA/PulseAudio loopback not yet implemented.
             anyhow::bail!("System audio capture not yet implemented for this platform")
         }
     }
