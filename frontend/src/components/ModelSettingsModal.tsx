@@ -31,7 +31,7 @@ import { cn, isOllamaNotInstalledError } from '@/lib/utils';
 import { toast } from 'sonner';
 
 export interface ModelConfig {
-  provider: 'ollama' | 'groq' | 'claude' | 'openai' | 'openrouter' | 'builtin-ai' | 'custom-openai';
+  provider: 'ollama' | 'groq' | 'claude' | 'openai' | 'openrouter' | 'builtin-ai' | 'custom-openai' | 'codex';
   model: string;
   whisperModel: string;
   apiKey?: string | null;
@@ -215,6 +215,80 @@ export function ModelSettingsModal({
     }
   };
 
+  // --- Codex CLI provider state (Meetily-GM) ---
+  interface CodexStatus {
+    connected: boolean;
+    cli_installed: boolean;
+    cli_path?: string | null;
+    cli_version?: string | null;
+    user_email?: string | null;
+    detail?: string | null;
+  }
+  const [codexStatus, setCodexStatus] = useState<CodexStatus | null>(null);
+  const [codexBusy, setCodexBusy] = useState(false);
+
+  const refreshCodexStatus = async (): Promise<CodexStatus | null> => {
+    try {
+      const status = (await invoke('codex_status')) as CodexStatus;
+      setCodexStatus(status);
+      return status;
+    } catch (err) {
+      console.error('codex_status failed:', err);
+      setCodexStatus({
+        connected: false,
+        cli_installed: false,
+        detail: String(err),
+      });
+      return null;
+    }
+  };
+
+  const signInCodex = async () => {
+    setCodexBusy(true);
+    try {
+      await invoke('codex_login_start');
+      toast.info('Complete the sign-in in the browser window Codex just opened...');
+      // Poll until connected (up to 5 minutes, matching codex login's window)
+      for (let i = 0; i < 100; i++) {
+        await new Promise((r) => setTimeout(r, 3000));
+        const status = await refreshCodexStatus();
+        if (status?.connected) {
+          toast.success(
+            status.user_email
+              ? `Connected to Codex as ${status.user_email}`
+              : 'Connected to Codex',
+          );
+          return;
+        }
+      }
+      toast.warning('Codex sign-in timed out. Try again.');
+    } catch (err) {
+      toast.error(`Codex sign-in failed: ${err}`);
+    } finally {
+      setCodexBusy(false);
+    }
+  };
+
+  const signOutCodex = async () => {
+    setCodexBusy(true);
+    try {
+      await invoke('codex_logout');
+      toast.success('Signed out of Codex.');
+    } catch (err) {
+      toast.error(`Codex sign-out failed: ${err}`);
+    } finally {
+      setCodexBusy(false);
+      await refreshCodexStatus();
+    }
+  };
+
+  useEffect(() => {
+    if (modelConfig.provider === 'codex' && codexStatus === null) {
+      refreshCodexStatus();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modelConfig.provider]);
+
   // Auto-unlock when API key becomes empty, 
   useEffect(() => {
     const hasContent = !!apiKey?.trim();
@@ -231,6 +305,7 @@ export function ModelSettingsModal({
     openrouter: openRouterModels.map((m) => m.id),
     'builtin-ai': builtinAiModels.map((m) => m.name),
     'custom-openai': customOpenAIModel ? [customOpenAIModel] : [], // User specifies model manually
+    codex: ['default'], // Model is chosen by the Codex CLI itself
   };
 
   const requiresApiKey =
@@ -876,6 +951,7 @@ export function ModelSettingsModal({
               <SelectContent className="max-h-64 overflow-y-auto">
                 <SelectItem value="builtin-ai">Built-in AI (Offline, No API needed)</SelectItem>
                 <SelectItem value="claude">Claude</SelectItem>
+                <SelectItem value="codex">OpenAI Codex (ChatGPT plan, no API key)</SelectItem>
                 <SelectItem value="custom-openai">Custom Server (OpenAI)</SelectItem>
                 <SelectItem value="groq">Groq</SelectItem>
                 <SelectItem value="ollama">Ollama</SelectItem>
@@ -884,7 +960,7 @@ export function ModelSettingsModal({
               </SelectContent>
             </Select>
 
-            {modelConfig.provider !== 'builtin-ai' && modelConfig.provider !== 'custom-openai' && (
+            {modelConfig.provider !== 'builtin-ai' && modelConfig.provider !== 'custom-openai' && modelConfig.provider !== 'codex' && (
               <Popover open={modelComboboxOpen} onOpenChange={setModelComboboxOpen} modal={true}>
                 <PopoverTrigger asChild>
                   <Button
@@ -1110,6 +1186,61 @@ export function ModelSettingsModal({
                   {showApiKey ? <EyeOff /> : <Eye />}
                 </Button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Codex CLI Section (Meetily-GM) */}
+        {modelConfig.provider === 'codex' && (
+          <div className="space-y-3 border-t pt-4">
+            <div className="text-sm text-muted-foreground">
+              Summaries run through the local OpenAI Codex CLI using your ChatGPT
+              subscription — free, no API key, nothing stored by this app.
+            </div>
+            <div className="text-sm">
+              {codexStatus === null ? (
+                'Checking Codex CLI...'
+              ) : codexStatus.connected ? (
+                <span className="text-green-600">
+                  ✓ Connected{codexStatus.user_email ? ` as ${codexStatus.user_email}` : ''}
+                  {codexStatus.cli_version ? ` — ${codexStatus.cli_version}` : ''}
+                </span>
+              ) : (
+                <span className="text-amber-600">{codexStatus.detail ?? 'Not connected.'}</span>
+              )}
+            </div>
+            <div className="flex space-x-2">
+              {codexStatus && !codexStatus.cli_installed ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => refreshCodexStatus()}
+                  disabled={codexBusy}
+                >
+                  Re-check installation
+                </Button>
+              ) : codexStatus && !codexStatus.connected ? (
+                <Button type="button" onClick={() => signInCodex()} disabled={codexBusy}>
+                  {codexBusy ? 'Waiting for browser sign-in...' : 'Sign in with ChatGPT'}
+                </Button>
+              ) : codexStatus ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => signOutCodex()}
+                  disabled={codexBusy}
+                >
+                  Sign out
+                </Button>
+              ) : null}
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => refreshCodexStatus()}
+                disabled={codexBusy}
+              >
+                Refresh
+              </Button>
             </div>
           </div>
         )}

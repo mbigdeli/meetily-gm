@@ -38,6 +38,7 @@ pub(crate) use perf_trace;
 pub mod analytics;
 pub mod api;
 pub mod audio;
+pub mod codex;
 pub mod config;
 pub mod console_utils;
 pub mod database;
@@ -671,6 +672,10 @@ pub fn run() {
             summary::template_commands::api_list_templates,
             summary::template_commands::api_get_template_details,
             summary::template_commands::api_validate_template,
+            // Codex CLI commands (Meetily-GM)
+            codex::commands::codex_status,
+            codex::commands::codex_login_start,
+            codex::commands::codex_logout,
             // Built-in AI commands
             summary::summary_engine::commands::builtin_ai_list_models,
             summary::summary_engine::commands::builtin_ai_get_model_info,

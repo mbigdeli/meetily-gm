@@ -120,6 +120,9 @@ dashmap = "6.1.0"
 # Directories
 dirs = "5.0.1"
 
+# Codex CLI provider (Meetily-GM): JWT payload decode for account display
+base64 = "0.22"
+
 # Additional dependencies for notification system
 url = "2.5.0"
 

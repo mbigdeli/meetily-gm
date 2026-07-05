@@ -73,6 +73,8 @@ pub enum LLMProvider {
     OpenRouter,
     BuiltInAI,
     CustomOpenAI,
+    /// Local OpenAI Codex CLI — free with a ChatGPT subscription, no API key.
+    CodexCli,
 }
 
 impl LLMProvider {
@@ -86,6 +88,7 @@ impl LLMProvider {
             "openrouter" => Ok(Self::OpenRouter),
             "builtin-ai" | "local-llama" | "localllama" => Ok(Self::BuiltInAI),
             "custom-openai" => Ok(Self::CustomOpenAI),
+            "codex" | "codex-cli" => Ok(Self::CodexCli),
             _ => Err(format!("Unsupported LLM provider: {}", s)),
         }
     }
@@ -148,6 +151,20 @@ pub async fn generate_summary(
         .map_err(|e| e.to_string());
     }
 
+    // Handle Codex CLI provider separately (local subprocess, ChatGPT login, no HTTP API)
+    if provider == &LLMProvider::CodexCli {
+        let app_data_dir = app_data_dir
+            .ok_or_else(|| "app_data_dir is required for Codex CLI provider".to_string())?;
+
+        return crate::codex::generate_with_codex(
+            app_data_dir,
+            system_prompt,
+            user_prompt,
+            cancellation_token,
+        )
+        .await;
+    }
+
     let (api_url, mut headers) = match provider {
         LLMProvider::OpenAI => (
             "https://api.openai.com/v1/chat/completions".to_string(),
@@ -194,9 +211,9 @@ pub async fn generate_summary(
             );
             ("https://api.anthropic.com/v1/messages".to_string(), header_map)
         }
-        LLMProvider::BuiltInAI => {
-            // This case is handled earlier with early returns
-            unreachable!("BuiltInAI is handled before this match statement")
+        LLMProvider::BuiltInAI | LLMProvider::CodexCli => {
+            // These cases are handled earlier with early returns
+            unreachable!("non-HTTP providers are handled before this match statement")
         }
     };
 
@@ -342,5 +359,6 @@ fn provider_name(provider: &LLMProvider) -> &str {
         LLMProvider::BuiltInAI => "Built-in AI",
         LLMProvider::OpenRouter => "OpenRouter",
         LLMProvider::CustomOpenAI => "Custom OpenAI",
+        LLMProvider::CodexCli => "Codex CLI",
     }
 }
