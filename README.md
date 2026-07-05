@@ -44,6 +44,25 @@ A privacy-first AI meeting assistant that captures, transcribes, and summarizes 
 
 ---
 
+> ## About this fork — Meetily-GM
+>
+> This is a fork of [Meetily](https://github.com/Zackriya-Solutions/meetily) by
+> [Zackriya Solutions](https://www.zackriya.com/) (MIT license — thank you for the
+> excellent foundation). Meetily-GM adds:
+>
+> - **OpenAI Codex CLI summarization provider** — free AI summaries through your
+>   ChatGPT subscription (`codex login`), no API key, no per-token cost
+> - **Windows system-audio (loopback) capture** — record both sides of any meeting
+>   on Windows
+> - **Google Meet companion Chrome extension** — auto session detection, tab audio,
+>   live captions with speaker names, participant roster
+> - **Speaker name attribution for Google Meet** — transcripts labeled with real
+>   participant names via caption-overlap matching
+>
+> Everything else below is upstream Meetily documentation.
+
+---
+
 > **Meetily PRO Upgrade Offer** - Meetily PRO is available for users who need enhanced accuracy, advanced exports, custom summary workflows, and team-ready features. Use coupon code **LAUNCH20** for **20% off** until the next Meetily Community Edition release. Speaker diarization is also planned for PRO in mid-June. [Explore Meetily PRO →](https://meetily.ai/pro/)
 
 ---
