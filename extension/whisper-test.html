@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Meeting Capture - Whisper Voice Test</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <h1>Whisper Voice Test</h1>
+          <p>
+            Temporary extension page for recording microphone audio and sending it through the local
+            Native Messaging service to verify FFmpeg and Whisper output.
+          </p>
+        </div>
+        <button id="open-options" type="button">Open Options</button>
+      </header>
+
+      <section class="grid">
+        <div class="stack">
+          <section class="card stack">
+            <h2>1. Record A Test Clip</h2>
+            <div id="status" class="status" data-tone="idle">Ready.</div>
+            <div class="field">
+              <label for="meeting-title">Test session title</label>
+              <input id="meeting-title" type="text" value="Whisper Voice Test" />
+            </div>
+            <label class="check-row">
+              <input id="skip-codex" type="checkbox" checked />
+              Skip Codex merge for this test so Whisper output is easier to verify.
+            </label>
+            <div class="actions">
+              <button id="check-service" type="button">Check Service</button>
+              <button id="request-mic" type="button">Grant Mic</button>
+              <button id="start-recording" class="primary" type="button">Start Recording</button>
+              <button id="stop-recording" class="danger" type="button" disabled>Stop And Run Whisper</button>
+              <button id="refresh-status" type="button" disabled>Refresh Status</button>
+            </div>
+          </section>
+
+          <section class="card stack">
+            <h2>2. Session Status</h2>
+            <div id="service-status">Service not checked yet.</div>
+            <div id="session-summary"></div>
+            <div id="job-list">No jobs yet.</div>
+          </section>
+
+          <section class="card stack">
+            <h2>3. Codex Merge (AI Summary)</h2>
+            <div id="codex-status">Codex not checked yet.</div>
+            <div class="actions">
+              <button id="run-codex-merge" type="button" disabled>Run Codex Merge On This Session</button>
+              <button id="refresh-codex" type="button">Refresh Codex Status</button>
+            </div>
+            <div id="codex-result"></div>
+          </section>
+
+          <section class="card stack">
+            <h2>4. Pipeline Events</h2>
+            <div id="event-list">No events yet. Events show every pipeline step, skip reason, and error.</div>
+          </section>
+
+          <section class="card stack">
+            <h2>Log</h2>
+            <pre id="log" class="log"></pre>
+          </section>
+        </div>
+
+        <aside class="stack">
+          <section class="card stack">
+            <h2>Current Settings</h2>
+            <div id="settings-summary"></div>
+          </section>
+
+          <section class="card stack">
+            <h2>Files To Check</h2>
+            <div id="file-list" class="file-list"></div>
+          </section>
+
+          <section class="card stack">
+            <h2>Related Files And Functions</h2>
+            <div id="references" class="references"></div>
+          </section>
+        </aside>
+      </section>
+    </main>
+    <script type="module" src="./src/whisper-test/main.ts"></script>
+  </body>
+</html>

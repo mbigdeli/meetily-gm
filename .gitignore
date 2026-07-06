@@ -62,6 +62,8 @@ logs
 dev-debug.log
 # Dependency directories
 node_modules/
+# Meetily-GM companion extension build output
+extension/dist/
 # Environment variables
 .env
 # Editor directories and files
