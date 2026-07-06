@@ -31,14 +31,23 @@ INPUTS
   their wording over Whisper.
 - participants: the meeting's attendee roster (real names), may be empty.
 
+TIMELINE NOTE (important)
+transcript_segments start_sec and caption_events start_sec may share a small,
+roughly CONSTANT offset (audio recording can start a few seconds after the Meet
+began). Do NOT assume the two clocks are identical. Align them by RELATIVE
+ordering, spacing, and speaker-turn continuity — infer the constant offset from
+how the sequences line up, then match. A caption whose text closely matches a
+Whisper span identifies both the speaker AND the offset.
+
 TASK
 Produce final_segments: the Whisper words, split/kept by natural turn, each
-assigned to the correct speaker by matching caption_events by time overlap
-(and speaker continuity). Rules:
+assigned to the correct speaker by matching caption_events (offset-adjusted time
+overlap + text similarity + speaker continuity). Rules:
 - Words/text come from transcript_segments (Whisper). Never invent or import
   wording from captions except when Whisper is empty for a span.
-- Speaker names come from caption_events by maximal time overlap. If no caption
-  overlaps a segment, set speaker_name to "Unknown" and lower confidence.
+- Speaker names come from caption_events by best offset-adjusted overlap / text
+  match. If no caption plausibly matches a segment, set speaker_name to
+  "Unknown" and lower confidence.
 - Prefer a known participant name; never invent names not in captions/roster.
 - Merge overlapping/duplicate Whisper spans (chunk overlap) into one.
 - Preserve the original spoken language(s); do NOT translate.
@@ -220,43 +229,60 @@ pub async fn run_diarization<R: Runtime>(
     write_segments_from_whisper(pool, meeting_id, &whisper).await
 }
 
-async fn clear_existing(pool: &SqlitePool, meeting_id: &str) -> Result<(), String> {
-    sqlx::query("DELETE FROM meeting_diarized_segments WHERE meeting_id = ?")
-        .bind(meeting_id)
-        .execute(pool)
-        .await
-        .map_err(|e| format!("clear diarized: {e}"))?;
-    Ok(())
-}
-
-async fn insert_segment(
-    pool: &SqlitePool,
-    meeting_id: &str,
-    seq: i64,
+/// One diarized row to persist.
+struct SegParams {
     start: Option<f64>,
     end: Option<f64>,
-    speaker: &str,
-    language: Option<&str>,
+    speaker: String,
+    language: Option<String>,
     confidence: Option<f64>,
-    text: &str,
-) -> Result<(), String> {
-    sqlx::query(
-        "INSERT INTO meeting_diarized_segments
-         (meeting_id, seq, start_sec, end_sec, speaker_name, language, confidence, text)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-    )
-    .bind(meeting_id)
-    .bind(seq)
-    .bind(start)
-    .bind(end)
-    .bind(speaker)
-    .bind(language)
-    .bind(confidence)
-    .bind(text)
-    .execute(pool)
-    .await
-    .map_err(|e| format!("insert diarized: {e}"))?;
-    Ok(())
+    text: String,
+}
+
+/// Atomically replace a meeting's diarized segments: DELETE + all INSERTs run in
+/// ONE transaction, so a mid-loop failure rolls back (no partial/lost data).
+async fn write_segments(
+    pool: &SqlitePool,
+    meeting_id: &str,
+    segs: Vec<SegParams>,
+) -> Result<usize, String> {
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|e| format!("begin diarize tx: {e}"))?;
+
+    sqlx::query("DELETE FROM meeting_diarized_segments WHERE meeting_id = ?")
+        .bind(meeting_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| format!("clear diarized: {e}"))?;
+
+    let mut n = 0i64;
+    for s in &segs {
+        sqlx::query(
+            "INSERT INTO meeting_diarized_segments
+             (meeting_id, seq, start_sec, end_sec, speaker_name, language, confidence, text)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(meeting_id)
+        .bind(n)
+        .bind(s.start)
+        .bind(s.end)
+        .bind(&s.speaker)
+        .bind(s.language.as_deref())
+        .bind(s.confidence)
+        .bind(&s.text)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| format!("insert diarized: {e}"))?;
+        n += 1;
+    }
+
+    tx.commit()
+        .await
+        .map_err(|e| format!("commit diarize tx: {e}"))?;
+    log::info!("diarize: wrote {n} diarized segments for {meeting_id}");
+    Ok(n as usize)
 }
 
 async fn write_segments_from_json(
@@ -264,35 +290,31 @@ async fn write_segments_from_json(
     meeting_id: &str,
     segs: &[Value],
 ) -> Result<usize, String> {
-    clear_existing(pool, meeting_id).await?;
-    let mut n = 0i64;
-    for s in segs {
-        let text = s.get("text").and_then(|v| v.as_str()).unwrap_or("").trim();
-        if text.is_empty() {
-            continue;
-        }
-        let speaker = s
-            .get("speaker_name")
-            .and_then(|v| v.as_str())
-            .map(str::trim)
-            .filter(|x| !x.is_empty())
-            .unwrap_or("Unknown");
-        insert_segment(
-            pool,
-            meeting_id,
-            n,
-            s.get("start_sec").and_then(|v| v.as_f64()),
-            s.get("end_sec").and_then(|v| v.as_f64()),
-            speaker,
-            s.get("language").and_then(|v| v.as_str()),
-            s.get("confidence").and_then(|v| v.as_f64()),
-            text,
-        )
-        .await?;
-        n += 1;
-    }
-    log::info!("diarize: wrote {n} diarized segments for {meeting_id}");
-    Ok(n as usize)
+    let rows: Vec<SegParams> = segs
+        .iter()
+        .filter_map(|s| {
+            let text = s.get("text").and_then(|v| v.as_str()).unwrap_or("").trim();
+            if text.is_empty() {
+                return None;
+            }
+            let speaker = s
+                .get("speaker_name")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|x| !x.is_empty())
+                .unwrap_or("Unknown")
+                .to_string();
+            Some(SegParams {
+                start: s.get("start_sec").and_then(|v| v.as_f64()),
+                end: s.get("end_sec").and_then(|v| v.as_f64()),
+                speaker,
+                language: s.get("language").and_then(|v| v.as_str()).map(String::from),
+                confidence: s.get("confidence").and_then(|v| v.as_f64()),
+                text: text.to_string(),
+            })
+        })
+        .collect();
+    write_segments(pool, meeting_id, rows).await
 }
 
 async fn write_segments_from_whisper(
@@ -300,28 +322,24 @@ async fn write_segments_from_whisper(
     meeting_id: &str,
     whisper: &[WhisperRow],
 ) -> Result<usize, String> {
-    clear_existing(pool, meeting_id).await?;
-    let mut n = 0i64;
-    for w in whisper {
-        let text = w.transcript.trim();
-        if text.is_empty() {
-            continue;
-        }
-        insert_segment(
-            pool,
-            meeting_id,
-            n,
-            w.audio_start_time,
-            w.audio_end_time,
-            "Unknown",
-            None,
-            None,
-            text,
-        )
-        .await?;
-        n += 1;
-    }
-    Ok(n as usize)
+    let rows: Vec<SegParams> = whisper
+        .iter()
+        .filter_map(|w| {
+            let text = w.transcript.trim();
+            if text.is_empty() {
+                return None;
+            }
+            Some(SegParams {
+                start: w.audio_start_time,
+                end: w.audio_end_time,
+                speaker: "Unknown".to_string(),
+                language: None,
+                confidence: None,
+                text: text.to_string(),
+            })
+        })
+        .collect();
+    write_segments(pool, meeting_id, rows).await
 }
 
 async fn write_segments_from_captions(
@@ -329,34 +347,31 @@ async fn write_segments_from_captions(
     meeting_id: &str,
     captions: &[CaptionRow],
 ) -> Result<usize, String> {
-    clear_existing(pool, meeting_id).await?;
-    let mut n = 0i64;
-    for c in captions {
-        let text = c.text.trim();
-        if text.is_empty() {
-            continue;
-        }
-        let speaker = c
-            .speaker
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .unwrap_or("Unknown");
-        insert_segment(
-            pool,
-            meeting_id,
-            n,
-            c.ts_ms.map(|ms| ms as f64 / 1000.0),
-            None,
-            speaker,
-            None,
-            None,
-            text,
-        )
-        .await?;
-        n += 1;
-    }
-    Ok(n as usize)
+    let rows: Vec<SegParams> = captions
+        .iter()
+        .filter_map(|c| {
+            let text = c.text.trim();
+            if text.is_empty() {
+                return None;
+            }
+            let speaker = c
+                .speaker
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .unwrap_or("Unknown")
+                .to_string();
+            Some(SegParams {
+                start: c.ts_ms.map(|ms| ms as f64 / 1000.0),
+                end: None,
+                speaker,
+                language: None,
+                confidence: None,
+                text: text.to_string(),
+            })
+        })
+        .collect();
+    write_segments(pool, meeting_id, rows).await
 }
 
 // ---- Tauri commands ------------------------------------------------------

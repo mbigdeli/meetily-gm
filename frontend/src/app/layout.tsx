@@ -130,7 +130,9 @@ export default function RootLayout({
   // Meetily-GM: Google Meet companion triggers. The desktop ingest server emits
   // these Tauri events when the Chrome extension detects a Meet start/stop.
   useEffect(() => {
-    const unStart = listen<{ gmeet_session_id: string; title?: string }>(
+    let cancelled = false;
+    let cleanups: UnlistenFn[] = [];
+    const startListener = listen<{ gmeet_session_id: string; title?: string }>(
       'gmeet-start-recording',
       (event) => {
         const { gmeet_session_id, title } = event.payload || ({} as any);
@@ -155,7 +157,7 @@ export default function RootLayout({
       },
     );
 
-    const unStop = listen('gmeet-stop-recording', () => {
+    const stopListener = listen('gmeet-stop-recording', () => {
       console.log('[Layout] gmeet-stop-recording');
       // Stop meetily's recording; useRecordingStop saves + diarizes.
       const w = window as unknown as { handleRecordingStop?: (callApi: boolean) => void };
@@ -166,9 +168,19 @@ export default function RootLayout({
       }
     });
 
+    // Await both registrations; if the effect already re-ran, tear them down.
+    Promise.all([startListener, stopListener]).then(([unStart, unStop]) => {
+      if (cancelled) {
+        unStart();
+        unStop();
+      } else {
+        cleanups = [unStart, unStop];
+      }
+    });
+
     return () => {
-      unStart.then((fn) => fn());
-      unStop.then((fn) => fn());
+      cancelled = true;
+      cleanups.forEach((fn) => fn());
     };
   }, [showOnboarding]);
 
