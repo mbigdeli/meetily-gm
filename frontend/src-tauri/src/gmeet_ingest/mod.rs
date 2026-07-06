@@ -339,18 +339,38 @@ async fn session_end<R: Runtime>(
         rows.len()
     );
 
-    crate::summary::service::SummaryService::process_transcript_background(
-        st.app.clone(),
-        pool,
-        req.meeting_id.clone(),
-        transcript_text,
-        provider.clone(),
-        model,
-        String::new(),
-        "standard_meeting".to_string(),
-        None,
-    )
-    .await;
+    // Create the summary_processes row first; process_transcript_background only
+    // *updates* it, so without this the summary result is never persisted.
+    if let Err(e) =
+        crate::database::repositories::summary::SummaryProcessesRepository::create_or_reset_process(
+            &pool,
+            &req.meeting_id,
+        )
+        .await
+    {
+        log::error!("gmeet ingest: failed to init summary process: {e}");
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    // Run the summary in the background so the HTTP response returns immediately
+    // (a Codex run can take minutes; the extension must not block on it).
+    let app = st.app.clone();
+    let meeting_id = req.meeting_id.clone();
+    let provider_bg = provider.clone();
+    tauri::async_runtime::spawn(async move {
+        crate::summary::service::SummaryService::process_transcript_background(
+            app,
+            pool,
+            meeting_id,
+            transcript_text,
+            provider_bg,
+            model,
+            String::new(),
+            "standard_meeting".to_string(),
+            None,
+        )
+        .await;
+    });
 
     Ok(Json(json!({ "summarizing": true, "provider": provider })))
 }
