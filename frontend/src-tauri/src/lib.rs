@@ -38,6 +38,7 @@ pub(crate) use perf_trace;
 pub mod analytics;
 pub mod api;
 pub mod audio;
+pub mod activity;
 pub mod codex;
 pub mod config;
 pub mod gmeet_ingest;
@@ -688,6 +689,8 @@ pub fn run() {
             gmeet_ingest::gmeet_pairing_info,
             gmeet_ingest::diarize::gmeet_finalize_diarization,
             gmeet_ingest::diarize::api_get_diarized_segments,
+            // Activity/status surface (Meetily-GM)
+            activity::api_get_meetings_status,
             // Built-in AI commands
             summary::summary_engine::commands::builtin_ai_list_models,
             summary::summary_engine::commands::builtin_ai_get_model_info,

@@ -19,6 +19,12 @@ export interface CurrentMeeting {
   title: string;
 }
 
+// Meetily-GM: per-meeting processing status for sidebar chips.
+export interface MeetingStatus {
+  summary_status?: string | null; // null | PENDING | completed | failed | cancelled
+  diarized: boolean;
+}
+
 // Search result type for transcript search
 interface TranscriptSearchResult {
   id: string;
@@ -35,6 +41,8 @@ interface SidebarContextType {
   toggleCollapse: () => void;
   meetings: CurrentMeeting[];
   setMeetings: (meetings: CurrentMeeting[]) => void;
+  // Meetily-GM: meeting_id -> processing status (for sidebar chips)
+  meetingStatuses: Record<string, MeetingStatus>;
   isMeetingActive: boolean;
   setIsMeetingActive: (active: boolean) => void;
   handleRecordingToggle: () => void;
@@ -75,6 +83,7 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
   const [serverAddress, setServerAddress] = useState('');
   const [transcriptServerAddress, setTranscriptServerAddress] = useState('');
   const [activeSummaryPolls, setActiveSummaryPolls] = useState<Map<string, NodeJS.Timeout>>(new Map());
+  const [meetingStatuses, setMeetingStatuses] = useState<Record<string, MeetingStatus>>({});
 
   // Use recording state from RecordingStateContext (single source of truth)
   const { isRecording } = useRecordingState();
@@ -93,6 +102,22 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
         }));
         setMeetings(transformedMeetings);
         Analytics.trackBackendConnection(true);
+
+        // Meetily-GM: batched per-meeting status for sidebar chips (single query).
+        try {
+          const rows = await invoke('api_get_meetings_status') as Array<{
+            meeting_id: string;
+            summary_status?: string | null;
+            diarized: number;
+          }>;
+          const map: Record<string, MeetingStatus> = {};
+          for (const r of rows) {
+            map[r.meeting_id] = { summary_status: r.summary_status, diarized: (r.diarized ?? 0) > 0 };
+          }
+          setMeetingStatuses(map);
+        } catch (statusErr) {
+          console.warn('Failed to load meeting statuses:', statusErr);
+        }
       } catch (error) {
         console.error('Error fetching meetings:', error);
         setMeetings([]);
@@ -298,6 +323,7 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
       toggleCollapse,
       meetings,
       setMeetings,
+      meetingStatuses,
       isMeetingActive,
       setIsMeetingActive,
       handleRecordingToggle,

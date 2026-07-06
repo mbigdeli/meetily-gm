@@ -4,6 +4,7 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { ChevronDown, ChevronRight, File, Settings, ChevronLeftCircle, ChevronRightCircle, Calendar, StickyNote, Home, Trash2, Mic, Square, Plus, Search, Pencil, NotebookPen, SearchIcon, X, Upload } from 'lucide-react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useSidebar } from './SidebarProvider';
+import { MeetingStatusChip } from './MeetingStatusChip';
 import type { CurrentMeeting } from '@/components/Sidebar/SidebarProvider';
 import { ConfirmationModal } from '../ConfirmationModel/confirmation-modal';
 import { ModelConfig } from '@/components/ModelSettingsModal';
@@ -54,7 +55,8 @@ const Sidebar: React.FC = () => {
     isSearching,
     meetings,
     setMeetings,
-    serverAddress
+    serverAddress,
+    meetingStatuses,
   } = useSidebar();
 
   // Get recording state from RecordingStateContext (single source of truth)
@@ -616,6 +618,11 @@ const Sidebar: React.FC = () => {
                   </div>
                 )}
                 <span className="flex-1 break-words">{item.title}</span>
+                {isMeetingItem && meetingStatuses[item.id] && (
+                  <span className="mr-1 flex-shrink-0 group-hover:hidden">
+                    <MeetingStatusChip status={meetingStatuses[item.id]} />
+                  </span>
+                )}
                 {isMeetingItem && (
                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
                     <button
