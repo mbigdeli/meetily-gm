@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { listen } from '@tauri-apps/api/event';
+import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
+import { configService } from '@/services/configService';
 import { useTranscripts } from '@/contexts/TranscriptContext';
 import { useSidebar } from '@/components/Sidebar/SidebarProvider';
 import { useRecordingState, RecordingStatus } from '@/contexts/RecordingStateContext';
@@ -292,6 +294,56 @@ export function useRecordingStop(
           console.log('✅ Successfully saved COMPLETE meeting with ID:', meetingId);
           console.log('   Transcripts:', freshTranscripts.length);
           console.log('   folder_path:', folderPath);
+
+          // Meetily-GM: if this was a Google Meet recording, merge the Whisper
+          // transcript with the Meet captions (real speaker names) via AI
+          // diarization, then trigger the summary on the diarized transcript.
+          try {
+            const gmeetSessionId = sessionStorage.getItem('gmeet_session_id');
+            if (gmeetSessionId) {
+              sessionStorage.removeItem('gmeet_session_id');
+              sessionStorage.removeItem('gmeet_title');
+              console.log('[gmeet] finalizing diarization for', meetingId);
+              const count = await invoke<number>('gmeet_finalize_diarization', {
+                gmeetSessionId,
+                meetingId,
+              });
+              console.log('[gmeet] diarized segments:', count);
+              toast.success('Google Meet diarized', {
+                description: `${count} speaker-labeled segments. Generating summary…`,
+              });
+              // Summarize the DIARIZED transcript (named lines) so the summary
+              // credits people by name. Build the text from the diarized segments.
+              try {
+                const segs = await invoke<Array<{ speaker_name?: string; text: string }>>(
+                  'api_get_diarized_segments',
+                  { meetingId },
+                );
+                const diarizedText = segs
+                  .map((s) => `${s.speaker_name || 'Unknown'}: ${s.text}`)
+                  .join('\n');
+                if (diarizedText.trim()) {
+                  const cfg = await configService.getModelConfig();
+                  await invoke('api_process_transcript', {
+                    text: diarizedText,
+                    model: cfg.provider,
+                    modelName: cfg.model || 'default',
+                    meetingId,
+                    customPrompt: '',
+                    templateId: 'standard_meeting',
+                    summaryLanguage: null,
+                  });
+                }
+              } catch (e) {
+                console.warn('[gmeet] summary trigger failed:', e);
+              }
+            }
+          } catch (e) {
+            console.warn('[gmeet] diarization finalize failed:', e);
+            toast.warning('Google Meet diarization failed', {
+              description: 'The transcript was saved, but speaker labeling did not complete.',
+            });
+          }
 
           // Mark meeting as saved in IndexedDB (for recovery system)
           await markMeetingAsSaved();

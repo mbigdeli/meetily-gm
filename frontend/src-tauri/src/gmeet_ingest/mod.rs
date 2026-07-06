@@ -24,9 +24,11 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::SqlitePool;
-use tauri::{AppHandle, Manager, Runtime};
+use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 use crate::state::AppState;
+
+pub mod diarize;
 
 /// Fixed localhost port (already whitelisted in the app's CSP connect-src).
 pub const GMEET_INGEST_PORT: u16 = 5167;
@@ -104,6 +106,8 @@ struct SessionStartReq {
 
 #[derive(Serialize)]
 struct SessionStartResp {
+    /// The gmeet session id (returned in the `meeting_id` field for extension
+    /// compatibility — it is the key the extension echoes on later calls).
     meeting_id: String,
     resumed: bool,
 }
@@ -112,7 +116,7 @@ struct SessionStartResp {
 struct CaptionItem {
     speaker: Option<String>,
     text: String,
-    /// Milliseconds from meeting start (optional; used for ordering).
+    /// Milliseconds from meeting start (optional; used for ordering + overlap).
     ts_ms: Option<i64>,
 }
 
@@ -164,80 +168,36 @@ async fn session_start<R: Runtime>(
     if !authed(&headers, &st) {
         return Err(StatusCode::UNAUTHORIZED);
     }
-    let pool = pool_from(&st)?;
-    let now = now_iso();
     let title = req
         .title
         .filter(|t| !t.trim().is_empty())
         .unwrap_or_else(|| "Google Meet".to_string());
 
-    // Resume an existing meeting for the same Meet code if one exists and has no
-    // summary yet (same-meeting rejoin), else create a fresh meeting.
-    let existing: Option<String> = if let Some(code) = req.meeting_code.as_deref() {
-        sqlx::query_scalar::<_, String>(
-            "SELECT id FROM meetings WHERE id LIKE ? ORDER BY created_at DESC LIMIT 1",
-        )
-        .bind(format!("gmeet-{code}-%"))
-        .fetch_optional(&pool)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-    } else {
-        None
-    };
+    // The SQLite meeting_id does not exist until meetily stops+saves the
+    // recording, so we mint a gmeet_session_id now and key captions off it.
+    // It is linked to the real meeting_id after save (gmeet_finalize_diarization).
+    let code = req.meeting_code.as_deref().unwrap_or("adhoc");
+    let gmeet_session_id = format!("gmeet-{code}-{}", uuid::Uuid::new_v4());
 
-    let (meeting_id, resumed) = if let Some(id) = existing {
-        (id, true)
-    } else {
-        let code = req.meeting_code.as_deref().unwrap_or("adhoc");
-        let id = format!("gmeet-{code}-{}", uuid::Uuid::new_v4());
-        sqlx::query("INSERT INTO meetings (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)")
-            .bind(&id)
-            .bind(&title)
-            .bind(&now)
-            .bind(&now)
-            .execute(&pool)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        (id, false)
-    };
-
-    upsert_participants(&pool, &meeting_id, &req.participants, &now).await?;
+    // Tell the meetily frontend to start its normal live recording.
+    let _ = st.app.emit(
+        "gmeet-start-recording",
+        json!({
+            "gmeet_session_id": gmeet_session_id,
+            "title": title,
+            "meeting_code": req.meeting_code,
+        }),
+    );
 
     log::info!(
-        "gmeet ingest: session_start meeting_id={} resumed={} participants={}",
-        meeting_id,
-        resumed,
+        "gmeet ingest: session_start -> {} (emitted gmeet-start-recording, participants={})",
+        gmeet_session_id,
         req.participants.len()
     );
     Ok(Json(SessionStartResp {
-        meeting_id,
-        resumed,
+        meeting_id: gmeet_session_id,
+        resumed: false,
     }))
-}
-
-async fn upsert_participants(
-    pool: &SqlitePool,
-    meeting_id: &str,
-    names: &[String],
-    now: &str,
-) -> Result<(), StatusCode> {
-    for name in names {
-        let name = name.trim();
-        if name.is_empty() {
-            continue;
-        }
-        sqlx::query(
-            "INSERT INTO meeting_participants (meeting_id, name, updated_at) VALUES (?, ?, ?)
-             ON CONFLICT(meeting_id, name) DO UPDATE SET updated_at = excluded.updated_at",
-        )
-        .bind(meeting_id)
-        .bind(name)
-        .bind(now)
-        .execute(pool)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    }
-    Ok(())
 }
 
 async fn captions<R: Runtime>(
@@ -250,32 +210,26 @@ async fn captions<R: Runtime>(
     }
     let pool = pool_from(&st)?;
     let now = now_iso();
+    // req.meeting_id carries the gmeet_session_id (the value returned by start).
     for cap in &req.captions {
         let text = cap.text.trim();
         if text.is_empty() {
             continue;
         }
-        let id = uuid::Uuid::new_v4().to_string();
         let speaker = cap
             .speaker
             .as_deref()
             .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .unwrap_or("Unknown");
-        // ts_ms lets the UI order/segment; stored in timestamp as-is when present.
-        let ts = cap
-            .ts_ms
-            .map(|ms| ms.to_string())
-            .unwrap_or_else(|| now.clone());
+            .filter(|s| !s.is_empty());
         sqlx::query(
-            "INSERT INTO transcripts (id, meeting_id, transcript, timestamp, speaker)
+            "INSERT INTO gmeet_captions (gmeet_session_id, speaker, text, ts_ms, created_at)
              VALUES (?, ?, ?, ?, ?)",
         )
-        .bind(&id)
         .bind(&req.meeting_id)
-        .bind(text)
-        .bind(&ts)
         .bind(speaker)
+        .bind(text)
+        .bind(cap.ts_ms)
+        .bind(&now)
         .execute(&pool)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -286,13 +240,13 @@ async fn captions<R: Runtime>(
 async fn participants<R: Runtime>(
     State(st): State<IngestState<R>>,
     headers: HeaderMap,
-    Json(req): Json<ParticipantsReq>,
+    Json(_req): Json<ParticipantsReq>,
 ) -> Result<StatusCode, StatusCode> {
     if !authed(&headers, &st) {
         return Err(StatusCode::UNAUTHORIZED);
     }
-    let pool = pool_from(&st)?;
-    upsert_participants(&pool, &req.meeting_id, &req.participants, &now_iso()).await?;
+    // Speaker names come from the captions themselves; the roster is accepted
+    // but not separately stored in this flow (kept for a future summary hint).
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -304,90 +258,17 @@ async fn session_end<R: Runtime>(
     if !authed(&headers, &st) {
         return Err(StatusCode::UNAUTHORIZED);
     }
-    let pool = pool_from(&st)?;
-
-    // Build the transcript text (named lines) from stored captions.
-    let rows = sqlx::query_as::<_, (Option<String>, String)>(
-        "SELECT speaker, transcript FROM transcripts WHERE meeting_id = ? ORDER BY rowid ASC",
-    )
-    .bind(&req.meeting_id)
-    .fetch_all(&pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    if rows.is_empty() {
-        log::warn!(
-            "gmeet ingest: session_end for {} but no captions captured; skipping summary",
-            req.meeting_id
-        );
-        return Ok(Json(json!({ "summarizing": false, "reason": "no_captions" })));
-    }
-
-    let transcript_text = rows
-        .iter()
-        .map(|(spk, txt)| format!("{}: {}", spk.as_deref().unwrap_or("Unknown"), txt))
-        .collect::<Vec<_>>()
-        .join("\n");
-
-    // Use the user's configured summary provider (Codex, Ollama, ...); default to codex.
-    let (provider, model) = read_summary_provider(&pool).await;
-
-    log::info!(
-        "gmeet ingest: session_end meeting_id={} provider={} lines={} -> starting summary",
-        req.meeting_id,
-        provider,
-        rows.len()
+    // Tell the frontend to stop recording + save; it then invokes
+    // gmeet_finalize_diarization once the real meeting_id exists.
+    let _ = st.app.emit(
+        "gmeet-stop-recording",
+        json!({ "gmeet_session_id": req.meeting_id }),
     );
-
-    // Create the summary_processes row first; process_transcript_background only
-    // *updates* it, so without this the summary result is never persisted.
-    if let Err(e) =
-        crate::database::repositories::summary::SummaryProcessesRepository::create_or_reset_process(
-            &pool,
-            &req.meeting_id,
-        )
-        .await
-    {
-        log::error!("gmeet ingest: failed to init summary process: {e}");
-        return Err(StatusCode::INTERNAL_SERVER_ERROR);
-    }
-
-    // Run the summary in the background so the HTTP response returns immediately
-    // (a Codex run can take minutes; the extension must not block on it).
-    let app = st.app.clone();
-    let meeting_id = req.meeting_id.clone();
-    let provider_bg = provider.clone();
-    tauri::async_runtime::spawn(async move {
-        crate::summary::service::SummaryService::process_transcript_background(
-            app,
-            pool,
-            meeting_id,
-            transcript_text,
-            provider_bg,
-            model,
-            String::new(),
-            "standard_meeting".to_string(),
-            None,
-        )
-        .await;
-    });
-
-    Ok(Json(json!({ "summarizing": true, "provider": provider })))
-}
-
-/// Read the configured summary provider/model, defaulting to Codex.
-async fn read_summary_provider(pool: &SqlitePool) -> (String, String) {
-    let row = sqlx::query_as::<_, (Option<String>, Option<String>)>(
-        "SELECT provider, model FROM settings WHERE id = '1'",
-    )
-    .fetch_optional(pool)
-    .await
-    .ok()
-    .flatten();
-    match row {
-        Some((Some(p), m)) if !p.is_empty() => (p, m.unwrap_or_else(|| "default".to_string())),
-        _ => ("codex".to_string(), "default".to_string()),
-    }
+    log::info!(
+        "gmeet ingest: session_end {} (emitted gmeet-stop-recording)",
+        req.meeting_id
+    );
+    Ok(Json(json!({ "stopping": true })))
 }
 
 // ---- server bootstrap ----------------------------------------------------
