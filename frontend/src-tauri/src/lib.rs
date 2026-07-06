@@ -40,6 +40,7 @@ pub mod api;
 pub mod audio;
 pub mod codex;
 pub mod config;
+pub mod gmeet_ingest;
 pub mod console_utils;
 pub mod database;
 pub mod notifications;
@@ -426,6 +427,13 @@ pub fn run() {
                 log::error!("Failed to create system tray: {}", e);
             }
 
+            // Meetily-GM: start the Google Meet ingest server (localhost:5167)
+            // for the companion Chrome extension.
+            let app_for_gmeet = _app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                gmeet_ingest::serve(app_for_gmeet).await;
+            });
+
             // Initialize notification system with proper defaults
             log::info!("Initializing notification system...");
             let app_for_notif = _app.handle().clone();
@@ -676,6 +684,8 @@ pub fn run() {
             codex::commands::codex_status,
             codex::commands::codex_login_start,
             codex::commands::codex_logout,
+            // Google Meet ingest (Meetily-GM)
+            gmeet_ingest::gmeet_pairing_info,
             // Built-in AI commands
             summary::summary_engine::commands::builtin_ai_list_models,
             summary::summary_engine::commands::builtin_ai_get_model_info,

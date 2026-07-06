@@ -123,6 +123,9 @@ dirs = "5.0.1"
 # Codex CLI provider (Meetily-GM): JWT payload decode for account display
 base64 = "0.22"
 
+# Google Meet ingest server (Meetily-GM): localhost HTTP for the companion extension
+axum = "0.7"
+
 # Additional dependencies for notification system
 url = "2.5.0"
 
