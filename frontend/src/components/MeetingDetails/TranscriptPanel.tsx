@@ -66,9 +66,11 @@ export function TranscriptPanel({
     }));
   }, [transcripts, usePagination, segments]);
 
-  // Meetily-GM: load diarized (speaker-named) segments for this meeting, if any.
+  // Meetily-GM: the unified transcript. When a consolidated speaker-attributed
+  // transcript exists (Whisper + Meet captions merged by the LLM) it IS the
+  // transcript — a single view, no raw/diarized toggle. Falls back to the raw
+  // Whisper transcript for non-Meet recordings (no captions to consolidate).
   const [diarized, setDiarized] = useState<DiarizedSegment[]>([]);
-  const [view, setView] = useState<'transcript' | 'diarized'>('transcript');
 
   useEffect(() => {
     let cancelled = false;
@@ -78,10 +80,7 @@ export function TranscriptPanel({
     }
     invoke<DiarizedSegment[]>('api_get_diarized_segments', { meetingId })
       .then((rows) => {
-        if (cancelled) return;
-        setDiarized(rows);
-        // Default to the diarized view when it exists (it's the richer output).
-        if (rows.length > 0) setView('diarized');
+        if (!cancelled) setDiarized(rows);
       })
       .catch(() => {
         if (!cancelled) setDiarized([]);
@@ -91,7 +90,7 @@ export function TranscriptPanel({
     };
   }, [meetingId, isRecording]);
 
-  const hasDiarized = diarized.length > 0;
+  const hasDiarized = diarized.length > 0 && !isRecording;
 
   return (
     <div className="hidden md:flex md:w-1/4 lg:w-1/3 min-w-0 border-r border-gray-200 bg-white flex-col relative shrink-0">
@@ -105,34 +104,18 @@ export function TranscriptPanel({
           meetingFolderPath={meetingFolderPath}
           onRefetchTranscripts={onRefetchTranscripts}
         />
-        {/* Diarized vs raw transcript toggle (only when a diarized transcript exists) */}
-        {hasDiarized && !isRecording && (
-          <div className="mt-3 inline-flex rounded-lg border border-gray-200 p-0.5 text-sm">
-            <button
-              type="button"
-              onClick={() => setView('diarized')}
-              className={`px-3 py-1 rounded-md transition-colors ${
-                view === 'diarized' ? 'bg-blue-500 text-white' : 'text-gray-600 hover:bg-gray-100'
-              }`}
-            >
-              Diarized
-            </button>
-            <button
-              type="button"
-              onClick={() => setView('transcript')}
-              className={`px-3 py-1 rounded-md transition-colors ${
-                view === 'transcript' ? 'bg-blue-500 text-white' : 'text-gray-600 hover:bg-gray-100'
-              }`}
-            >
-              Transcript
-            </button>
+        {/* Unified transcript badge (speaker-attributed, LLM-consolidated). */}
+        {hasDiarized && (
+          <div className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-medium text-blue-700">
+            <span className="h-1.5 w-1.5 rounded-full bg-blue-500" />
+            Speaker-attributed transcript
           </div>
         )}
       </div>
 
-      {/* Transcript content */}
+      {/* Transcript content — single unified view */}
       <div className="flex-1 overflow-hidden pb-4">
-        {view === 'diarized' && hasDiarized ? (
+        {hasDiarized ? (
           <DiarizedTranscriptView segments={diarized} />
         ) : (
           <VirtualizedTranscriptView

@@ -5,6 +5,8 @@
 //! transcript (text + speaker name) using the local Codex CLI. Runs after the
 //! recording is stopped and saved, once the SQLite meeting_id exists.
 
+use std::path::Path;
+
 use serde::Serialize;
 use serde_json::{json, Value};
 use sqlx::SqlitePool;
@@ -12,67 +14,76 @@ use tauri::{AppHandle, Manager, Runtime};
 
 use crate::state::AppState;
 
-/// Cap how many segments we hand the model (keeps the prompt bounded + fast).
+/// Cap how many segments we hand the model per call (keeps the prompt bounded).
 const MAX_WHISPER_SEGMENTS: usize = 600;
 const MAX_CAPTIONS: usize = 600;
 const MAX_ATTEMPTS: usize = 3;
 
-const DIARIZE_SYSTEM_PROMPT: &str = r#"You are a meeting transcript diarization engine. You merge two imperfect
-sources of the SAME meeting into one clean, speaker-attributed transcript.
-Output STRICT JSON ONLY — no markdown, no prose, no code fences.
+/// Long meetings are consolidated in windows so each Codex call stays bounded
+/// (avoids truncation / quality loss on very long transcripts). One window per
+/// ~10 minutes of audio; captions are pulled with a small pad on each side so a
+/// turn straddling a boundary still finds its speaker despite the clock offset.
+const CHUNK_SECONDS: f64 = 600.0;
+const CAPTION_PAD_SEC: f64 = 20.0;
+/// Below this total duration we send everything in a single call.
+const SINGLE_CALL_MAX_SECONDS: f64 = 720.0;
+
+const DIARIZE_SYSTEM_PROMPT: &str = r#"You are a meeting transcript consolidation engine. Two imperfect recordings of
+the SAME meeting are given; produce ONE unified, speaker-attributed transcript —
+the single most reliable version. Output STRICT JSON ONLY — no markdown, no
+prose, no code fences.
 
 INPUTS
-- transcript_segments: from local Whisper on the meeting audio. This is the
-  AUTHORITATIVE source for the SPOKEN WORDS. Each has start_sec, end_sec, text.
-  It has NO reliable speaker labels.
-- caption_events: from Google Meet's live captions. These are the
-  AUTHORITATIVE source for WHO SPOKE (speaker names are real), plus timing.
-  Their text may be truncated, lower-quality, or lag the audio — do NOT trust
-  their wording over Whisper.
-- participants: the meeting's attendee roster (real names), may be empty.
+- transcript_segments: from local Whisper on the meeting audio. Primary source
+  for the SPOKEN WORDS (accurate phrasing, punctuation, timing: start_sec,
+  end_sec, text). Has NO reliable speaker labels.
+- caption_events: from Google Meet live captions. Authoritative source for WHO
+  SPOKE (speaker_name is a real person). Wording is often truncated or lags the
+  audio, BUT captions frequently get proper nouns, names, jargon and acronyms
+  right where Whisper mishears them.
+- participants: attendee roster (real names), may be empty.
 
-TIMELINE NOTE (important)
-transcript_segments start_sec and caption_events start_sec may share a small,
-roughly CONSTANT offset (audio recording can start a few seconds after the Meet
-began). Do NOT assume the two clocks are identical. Align them by RELATIVE
-ordering, spacing, and speaker-turn continuity — infer the constant offset from
-how the sequences line up, then match. A caption whose text closely matches a
-Whisper span identifies both the speaker AND the offset.
+TIMELINE NOTE
+transcript_segments and caption_events may share a small, roughly CONSTANT time
+offset (audio can start a few seconds after the Meet). Do NOT assume identical
+clocks. Infer the offset from how the two sequences line up (ordering, spacing,
+turn continuity, matching text), then align. A caption whose text matches a
+Whisper span pins down both the speaker AND the offset.
 
-TASK
-Produce final_segments: the Whisper words, split/kept by natural turn, each
-assigned to the correct speaker by matching caption_events (offset-adjusted time
-overlap + text similarity + speaker continuity). Rules:
-- Words/text come from transcript_segments (Whisper). Never invent or import
-  wording from captions except when Whisper is empty for a span.
-- Speaker names come from caption_events by best offset-adjusted overlap / text
-  match. If no caption plausibly matches a segment, set speaker_name to
-  "Unknown" and lower confidence.
-- Prefer a known participant name; never invent names not in captions/roster.
-- Merge overlapping/duplicate Whisper spans (chunk overlap) into one.
-- Preserve the original spoken language(s); do NOT translate.
-- Keep chronological order by start_sec.
-- confidence (0..1) reflects how sure the speaker attribution is.
+TASK — build final_segments (one clean transcript, one line per speaker turn):
+- WORDS: base each segment on Whisper's phrasing. Reconcile discrepancies to the
+  most plausible single version — when a caption clearly has the correct name /
+  proper noun / term that Whisper garbled, adopt that correction. Do NOT emit two
+  variants and do NOT keep obvious mis-hearings when the caption disambiguates.
+  Where Whisper is empty for a span that captions cover, use the caption text.
+- SPEAKER: assign speaker_name from caption_events by best offset-adjusted time
+  overlap + text similarity + turn continuity. Prefer a roster name. Never invent
+  a name; if none plausibly matches, use "Unknown" and lower confidence.
+- Merge overlapping/duplicate Whisper spans into one; split into a new segment at
+  each speaker change.
+- Preserve the original spoken language(s); do NOT translate or summarize.
+- Keep chronological order by start_sec. confidence (0..1) = certainty of the
+  speaker attribution.
 
 OUTPUT JSON SHAPE (exact keys):
 {
   "schema_version": 1,
   "final_segments": [
     {"start_sec": <number>, "end_sec": <number>, "speaker_name": "<name or 'Unknown'>",
-     "text": "<Whisper words>", "language": "<language>", "confidence": <0..1>}
+     "text": "<consolidated words>", "language": "<language>", "confidence": <0..1>}
   ],
   "speakers": ["<distinct names, first-appearance order>"],
   "unresolved": ["<notes on spans not confidently attributed>"]
 }"#;
 
-#[derive(sqlx::FromRow)]
+#[derive(sqlx::FromRow, Clone)]
 struct WhisperRow {
     transcript: String,
     audio_start_time: Option<f64>,
     audio_end_time: Option<f64>,
 }
 
-#[derive(sqlx::FromRow)]
+#[derive(sqlx::FromRow, Clone)]
 struct CaptionRow {
     speaker: Option<String>,
     text: String,
@@ -185,7 +196,91 @@ pub async fn run_diarization<R: Runtime>(
         .app_data_dir()
         .map_err(|e| format!("app_data_dir: {e}"))?;
 
-    let package = build_package(&whisper, &captions);
+    // Short meetings: one call. Long meetings: consolidate in ~10-min windows so
+    // each Codex call stays bounded (better quality, no truncation). Segments are
+    // accumulated across windows, then written once (single transaction).
+    let total_end = timeline_end(&whisper, &captions);
+    let mut all: Vec<SegParams> = Vec::new();
+
+    if total_end <= SINGLE_CALL_MAX_SECONDS {
+        match diarize_chunk(&app_data_dir, &whisper, &captions).await {
+            Ok(mut segs) => all.append(&mut segs),
+            Err(e) => {
+                log::error!("diarize: consolidation failed ({e}); falling back to whisper");
+                all.extend(whisper_as_segments(&whisper));
+            }
+        }
+    } else {
+        let n_chunks = (total_end / CHUNK_SECONDS).ceil() as usize;
+        log::info!("diarize: windowing {total_end:.0}s into {n_chunks} chunk(s)");
+        for i in 0..n_chunks {
+            let w0 = i as f64 * CHUNK_SECONDS;
+            let w1 = w0 + CHUNK_SECONDS;
+            let w_slice: Vec<WhisperRow> = whisper
+                .iter()
+                .filter(|w| {
+                    let t = w.audio_start_time.unwrap_or(0.0);
+                    t >= w0 && t < w1
+                })
+                .cloned()
+                .collect();
+            let c_slice: Vec<CaptionRow> = captions
+                .iter()
+                .filter(|c| {
+                    let t = c.ts_ms.map(|ms| ms as f64 / 1000.0).unwrap_or(0.0);
+                    t >= w0 - CAPTION_PAD_SEC && t < w1 + CAPTION_PAD_SEC
+                })
+                .cloned()
+                .collect();
+            if w_slice.is_empty() && c_slice.is_empty() {
+                continue;
+            }
+            // No captions in this window → keep Whisper as-is (no LLM needed).
+            if c_slice.is_empty() {
+                all.extend(whisper_as_segments(&w_slice));
+                continue;
+            }
+            match diarize_chunk(&app_data_dir, &w_slice, &c_slice).await {
+                Ok(mut segs) => all.append(&mut segs),
+                Err(e) => {
+                    log::warn!("diarize: chunk {i} failed ({e}); using whisper for this window");
+                    all.extend(whisper_as_segments(&w_slice));
+                }
+            }
+        }
+    }
+
+    // Never lose the transcript: if consolidation yielded nothing usable, keep
+    // whatever Whisper produced.
+    if all.is_empty() {
+        all.extend(whisper_as_segments(&whisper));
+    }
+    write_segments(pool, meeting_id, all).await
+}
+
+/// Latest timestamp (seconds) seen across either source — the meeting's length.
+fn timeline_end(whisper: &[WhisperRow], captions: &[CaptionRow]) -> f64 {
+    let w = whisper
+        .iter()
+        .filter_map(|w| w.audio_end_time.or(w.audio_start_time))
+        .fold(0.0_f64, f64::max);
+    let c = captions
+        .iter()
+        .filter_map(|c| c.ts_ms)
+        .map(|ms| ms as f64 / 1000.0)
+        .fold(0.0_f64, f64::max);
+    w.max(c)
+}
+
+/// Consolidate one window (Whisper + captions) via Codex into diarized segments.
+/// Retries JSON-shape failures up to MAX_ATTEMPTS; Err after that (caller falls
+/// back to raw Whisper for the window so no data is lost).
+async fn diarize_chunk(
+    app_data_dir: &Path,
+    whisper: &[WhisperRow],
+    captions: &[CaptionRow],
+) -> Result<Vec<SegParams>, String> {
+    let package = build_package(whisper, captions);
     let base_user = format!(
         "Merge the following into the required JSON object. Output ONLY the JSON.\n\n{}",
         serde_json::to_string(&package).unwrap_or_default()
@@ -200,33 +295,26 @@ pub async fn run_diarization<R: Runtime>(
                 "{base_user}\n\nYour previous reply was not valid JSON matching the shape. Error: {last_err}. Return STRICT JSON ONLY."
             )
         };
-        let raw = crate::codex::generate_with_codex(
-            &app_data_dir,
-            DIARIZE_SYSTEM_PROMPT,
-            &user_prompt,
-            None,
-        )
-        .await?;
+        let raw =
+            crate::codex::generate_with_codex(app_data_dir, DIARIZE_SYSTEM_PROMPT, &user_prompt, None)
+                .await?;
 
         match parse_json_lenient(&raw) {
-            Ok(v) => {
-                let segs = v.get("final_segments").and_then(|s| s.as_array());
-                match segs {
-                    Some(arr) if !arr.is_empty() => {
-                        return write_segments_from_json(pool, meeting_id, arr).await;
+            Ok(v) => match v.get("final_segments").and_then(|s| s.as_array()) {
+                Some(arr) if !arr.is_empty() => {
+                    let segs = segment_params_from_json(arr);
+                    if !segs.is_empty() {
+                        return Ok(segs);
                     }
-                    _ => last_err = "missing/empty final_segments".to_string(),
+                    last_err = "final_segments had no usable text".to_string();
                 }
-            }
+                _ => last_err = "missing/empty final_segments".to_string(),
+            },
             Err(e) => last_err = format!("JSON parse: {e}"),
         }
         log::warn!("diarize attempt {attempt} failed: {last_err}");
     }
-
-    // All attempts failed — fall back to whisper-with-Unknown so the meeting
-    // still has a transcript.
-    log::error!("diarize: all attempts failed ({last_err}); falling back to whisper");
-    write_segments_from_whisper(pool, meeting_id, &whisper).await
+    Err(last_err)
 }
 
 /// One diarized row to persist.
@@ -285,13 +373,9 @@ async fn write_segments(
     Ok(n as usize)
 }
 
-async fn write_segments_from_json(
-    pool: &SqlitePool,
-    meeting_id: &str,
-    segs: &[Value],
-) -> Result<usize, String> {
-    let rows: Vec<SegParams> = segs
-        .iter()
+/// Parse the model's `final_segments` array into persistable rows (drops empties).
+fn segment_params_from_json(segs: &[Value]) -> Vec<SegParams> {
+    segs.iter()
         .filter_map(|s| {
             let text = s.get("text").and_then(|v| v.as_str()).unwrap_or("").trim();
             if text.is_empty() {
@@ -313,16 +397,12 @@ async fn write_segments_from_json(
                 text: text.to_string(),
             })
         })
-        .collect();
-    write_segments(pool, meeting_id, rows).await
+        .collect()
 }
 
-async fn write_segments_from_whisper(
-    pool: &SqlitePool,
-    meeting_id: &str,
-    whisper: &[WhisperRow],
-) -> Result<usize, String> {
-    let rows: Vec<SegParams> = whisper
+/// Whisper rows as diarized segments with speaker "Unknown" (no captions).
+fn whisper_as_segments(whisper: &[WhisperRow]) -> Vec<SegParams> {
+    whisper
         .iter()
         .filter_map(|w| {
             let text = w.transcript.trim();
@@ -338,8 +418,15 @@ async fn write_segments_from_whisper(
                 text: text.to_string(),
             })
         })
-        .collect();
-    write_segments(pool, meeting_id, rows).await
+        .collect()
+}
+
+async fn write_segments_from_whisper(
+    pool: &SqlitePool,
+    meeting_id: &str,
+    whisper: &[WhisperRow],
+) -> Result<usize, String> {
+    write_segments(pool, meeting_id, whisper_as_segments(whisper)).await
 }
 
 async fn write_segments_from_captions(
@@ -449,5 +536,30 @@ mod tests {
         assert_eq!(pkg["transcript_segments"][0]["text"], "hello world");
         assert_eq!(pkg["caption_events"][0]["speaker_name"], "Sara");
         assert_eq!(pkg["participants"][0], "Sara");
+    }
+
+    #[test]
+    fn segment_params_from_json_extracts_and_drops_empty() {
+        let segs = serde_json::json!([
+            {"start_sec": 0.5, "end_sec": 2.0, "speaker_name": "Sara", "text": "hi there", "confidence": 0.9},
+            {"start_sec": 2.0, "end_sec": 3.0, "speaker_name": "", "text": "   "},
+            {"start_sec": 3.0, "text": "no speaker key"}
+        ]);
+        let rows = segment_params_from_json(segs.as_array().unwrap());
+        assert_eq!(rows.len(), 2); // whitespace-only text dropped
+        assert_eq!(rows[0].speaker, "Sara");
+        assert_eq!(rows[0].text, "hi there");
+        assert_eq!(rows[1].speaker, "Unknown"); // missing speaker → Unknown
+    }
+
+    #[test]
+    fn timeline_end_takes_max_across_sources() {
+        let w = vec![
+            WhisperRow { transcript: "a".into(), audio_start_time: Some(0.0), audio_end_time: Some(30.0) },
+            WhisperRow { transcript: "b".into(), audio_start_time: Some(30.0), audio_end_time: None },
+        ];
+        let c = vec![CaptionRow { speaker: Some("X".into()), text: "y".into(), ts_ms: Some(45_000) }];
+        // captions reach 45s, whisper 30s → 45s wins
+        assert_eq!(timeline_end(&w, &c), 45.0);
     }
 }
