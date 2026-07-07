@@ -190,3 +190,71 @@ export class CaptionDedupeState {
     this.lastEmitAt = 0;
   }
 }
+
+export interface ConsolidatedLine {
+  speaker: string | null;
+  text: string;
+}
+
+/**
+ * Consolidates Google Meet's incremental live captions into ONE line per
+ * speaker turn. Meet re-emits the same utterance repeatedly as it grows
+ * ("hi" -> "hi there" -> "hi there team"); feeding every growth to meetily
+ * produced a very repetitive transcript. This holds the growing text for the
+ * current turn and returns a finalized line only when the turn ends (speaker
+ * change, or the text diverges into a new sentence). Call flush() at teardown
+ * to emit the final in-progress turn.
+ */
+export class CaptionConsolidator {
+  private speaker: string | null = null;
+  private text = "";
+
+  private norm(s: string | null): string {
+    return (s ?? "").trim();
+  }
+
+  /** Feed a caption snapshot. Returns a finalized line when a turn boundary is crossed, else null. */
+  process(snapshot: CaptionSnapshot): ConsolidatedLine | null {
+    const t = snapshot.captionText.trim();
+    if (t.length < 2) return null;
+    const s = snapshot.speakerHint;
+
+    if (this.text === "") {
+      this.speaker = s;
+      this.text = t;
+      return null;
+    }
+
+    const sameSpeaker = this.norm(s) === this.norm(this.speaker);
+    const related = t.startsWith(this.text) || this.text.startsWith(t);
+
+    if (sameSpeaker && related) {
+      // Same turn, still growing/correcting: keep the richer (longer) text.
+      if (t.length >= this.text.length) this.text = t;
+      return null;
+    }
+
+    // Turn boundary (speaker changed, or text diverged into a new sentence):
+    // finalize the previous turn and begin a new one.
+    const done: ConsolidatedLine = { speaker: this.speaker, text: this.text };
+    this.speaker = s;
+    this.text = t;
+    return done;
+  }
+
+  /** Emit the current in-progress turn (call on teardown / meeting end). */
+  flush(): ConsolidatedLine | null {
+    if (this.text.trim().length < 2) {
+      this.reset();
+      return null;
+    }
+    const done: ConsolidatedLine = { speaker: this.speaker, text: this.text };
+    this.reset();
+    return done;
+  }
+
+  reset(): void {
+    this.speaker = null;
+    this.text = "";
+  }
+}

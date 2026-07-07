@@ -10,7 +10,12 @@ import {
 } from "../../shared/storage.js";
 import { STORAGE_KEYS } from "../../shared/storageKeys.js";
 import type { CaptureSegmentState } from "../../shared/types.js";
-import { CaptionDedupeState, extractFromRegion, findCaptionRegion } from "./caption-parser.js";
+import {
+  CaptionConsolidator,
+  type ConsolidatedLine,
+  extractFromRegion,
+  findCaptionRegion,
+} from "./caption-parser.js";
 import { flushCaptureRecordingSegment, isOkResponse, normalizeMeetingTitle } from "./coordinatorUtils.js";
 import { extractParticipants } from "./participants.js";
 import { StealthCaptionManager } from "./stealth-captions.js";
@@ -58,7 +63,7 @@ export class MeetCaptureCoordinator {
   private captionDebounce: ReturnType<typeof setTimeout> | null = null;
   private participantTimer: ReturnType<typeof setInterval> | null = null;
 
-  private dedupe = new CaptionDedupeState(2_000);
+  private consolidator = new CaptionConsolidator();
 
   private stealthCaptions: StealthCaptionManager | null = null;
 
@@ -261,7 +266,7 @@ export class MeetCaptureCoordinator {
       }
 
       this.sessionId = actualSessionId;
-      this.dedupe.reset();
+      this.consolidator.reset();
       await patchSessionState({
         currentSessionId: actualSessionId,
         currentMeetingTitle: normalizeMeetingTitle(this.doc.title || ""),
@@ -380,21 +385,28 @@ export class MeetCaptureCoordinator {
     const snap = this.captionRegion
       ? extractFromRegion(this.captionRegion)
       : { captionText: "", speakerHint: null, domSignature: null };
-    if (!this.dedupe.shouldEmit(snap)) {
-      return;
+    // Consolidate Meet's incremental captions: emit ONE line per speaker turn
+    // (returned only when a turn boundary is crossed), not every growth.
+    const line = this.consolidator.process(snap);
+    if (line) {
+      await this.emitCaptionLine(sid, line);
     }
+  }
+
+  /** Send one consolidated caption line to the ingest server. */
+  private async emitCaptionLine(sid: string, line: ConsolidatedLine): Promise<void> {
     this.seq += 1;
-    console.info(`[MCS] caption #${this.seq} → speaker="${snap.speakerHint ?? "(none)"}" len=${snap.captionText.length}`);
+    console.info(`[MCS] caption #${this.seq} (turn) → speaker="${line.speaker ?? "(none)"}" len=${line.text.length}`);
     const st = await getSessionState();
     const lang = st.currentLiveCaptionLanguage ?? (await getLastCaptionLanguage());
     const source_language_setting = lang === "fa" || lang === "en" ? lang : null;
     const body = {
       captured_at: new Date().toISOString(),
       sequence_number: this.seq,
-      caption_text: snap.captionText,
-      speaker_hint_text: snap.speakerHint,
+      caption_text: line.text,
+      speaker_hint_text: line.speaker,
       source_language_setting,
-      dom_signature: snap.domSignature,
+      dom_signature: null,
     };
     const r = await chrome.runtime.sendMessage({
       type: "INGEST_CAPTION_EVENT",
@@ -468,7 +480,7 @@ export class MeetCaptureCoordinator {
     const sid = this.sessionId;
     const meetingCode = extractMeetingCode(this.doc.location.href);
     this.sessionId = null;
-    this.dedupe.reset();
+    this.consolidator.reset();
     if (!sid) {
       return;
     }
@@ -501,6 +513,13 @@ export class MeetCaptureCoordinator {
       if (!keepStream) {
         this.closeAudioKeepAlive();
       }
+    }
+
+    // Emit the final in-progress caption turn before pausing (else the last
+    // utterance of the meeting is lost).
+    const finalLine = this.consolidator.flush();
+    if (finalLine) {
+      await this.emitCaptionLine(sid, finalLine);
     }
 
     const pausedAt = new Date().toISOString();

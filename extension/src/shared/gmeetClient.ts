@@ -94,13 +94,77 @@ export async function checkGmeetHealth(): Promise<GmeetResult> {
   }
 }
 
+// --- session continuity across pause/resume -------------------------------
+// The extension owns the gmeet_session_id and keeps it stable when the same
+// Meet is rejoined within the grace window, so captions + diarization stay
+// unified. Keyed by meeting_code; `ts` tracks last activity (start/pause).
+
+const SESSIONS_KEY = "mcs_gmeet_sessions";
+const RESUME_WINDOW_MS = 5 * 60 * 1000;
+
+type SessionMap = Record<string, { id: string; ts: number }>;
+
+async function loadSessions(): Promise<SessionMap> {
+  const s = await chrome.storage.local.get(SESSIONS_KEY);
+  return (s[SESSIONS_KEY] as SessionMap) || {};
+}
+async function saveSessions(m: SessionMap): Promise<void> {
+  await chrome.storage.local.set({ [SESSIONS_KEY]: m });
+}
+function genId(code: string): string {
+  const rand =
+    typeof crypto !== "undefined" && crypto.randomUUID
+      ? crypto.randomUUID()
+      : Math.random().toString(16).slice(2);
+  return `gmeet-${code}-${rand}`;
+}
+/** Refresh last-activity ts for the session whose id matches (grace counts from here). */
+async function touchSessionById(id: string): Promise<void> {
+  const m = await loadSessions();
+  for (const code of Object.keys(m)) {
+    if (m[code].id === id) {
+      m[code].ts = Date.now();
+      await saveSessions(m);
+      return;
+    }
+  }
+}
+/** Forget the session (after finalize) so the next join of this Meet is fresh. */
+async function clearSessionById(id: string): Promise<void> {
+  const m = await loadSessions();
+  let changed = false;
+  for (const code of Object.keys(m)) {
+    if (m[code].id === id) {
+      delete m[code];
+      changed = true;
+    }
+  }
+  if (changed) await saveSessions(m);
+}
+
 export async function startSession(
   body: SessionStartRequest,
 ): Promise<GmeetResult<{ meeting_id: string; resumed: boolean }>> {
+  const code = body.meeting_code || "adhoc";
+  const sessions = await loadSessions();
+  const prev = sessions[code];
+  let sessionId: string;
+  let resume = false;
+  if (prev && Date.now() - prev.ts < RESUME_WINDOW_MS) {
+    sessionId = prev.id;
+    resume = true;
+  } else {
+    sessionId = genId(code);
+  }
+  sessions[code] = { id: sessionId, ts: Date.now() };
+  await saveSessions(sessions);
+
   return post("/gmeet/session/start", {
     meeting_code: body.meeting_code,
     title: body.meeting_title,
     participants: [],
+    session_id: sessionId,
+    resume,
   });
 }
 
@@ -132,6 +196,13 @@ export async function sendParticipants(
   });
 }
 
+/** Meet closed/paused: pause meetily + start its grace window (resume-able). */
+export async function pauseSession(meetingId: string): Promise<GmeetResult> {
+  await touchSessionById(meetingId); // grace window counts from the pause
+  return post("/gmeet/session/pause", { meeting_id: meetingId });
+}
+
 export async function endSession(meetingId: string): Promise<GmeetResult> {
+  await clearSessionById(meetingId); // finalized → next join of this Meet is fresh
   return post("/gmeet/session/end", { meeting_id: meetingId });
 }

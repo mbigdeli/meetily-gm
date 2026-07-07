@@ -6,6 +6,7 @@ import {
   sendCaption as gmeetSendCaption,
   sendParticipants as gmeetSendParticipants,
   endSession as gmeetEndSession,
+  pauseSession as gmeetPauseSession,
 } from "../shared/gmeetClient.js";
 import type { ExtensionMessage, SettingsAndSessionResponse } from "../shared/messages.js";
 import type { CurrentMeetingSnapshot, RecordingReadiness } from "../shared/recordingsTypes.js";
@@ -725,9 +726,13 @@ async function handleMessage(raw: unknown, sender: chrome.runtime.MessageSender)
       if (!parsed.success || parsed.data.type !== "INGEST_SESSION_PAUSE") {
         return { ok: false, error: "invalid_payload" };
       }
-      // Meetily-GM: captions drive the gmeet transcript, so pause is a no-op
-      // on the ingest side (nothing to pause; meetily owns any audio recording).
-      void parsed.data.payload;
+      // Meetily-GM: meet closed/paused → tell meetily to pause recording and
+      // start its 5-minute grace window (resume-able, or finalize on expiry).
+      const { sessionId: pauseSessionId } = parsed.data.payload;
+      const result = await gmeetPauseSession(pauseSessionId);
+      if (!result.ok) {
+        return { ok: false, error: result.error, detail: result };
+      }
       return { ok: true };
     }
 

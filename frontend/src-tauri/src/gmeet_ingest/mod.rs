@@ -102,6 +102,13 @@ struct SessionStartReq {
     title: Option<String>,
     #[serde(default)]
     participants: Vec<String>,
+    /// Extension-owned gmeet session id (kept stable across pause/resume so
+    /// captions + diarization stay unified). Backend mints one only if absent.
+    session_id: Option<String>,
+    /// True when the extension is resuming a recently-paused session (same Meet
+    /// rejoined within the grace window).
+    #[serde(default)]
+    resume: bool,
 }
 
 #[derive(Serialize)]
@@ -139,6 +146,11 @@ struct SessionEndReq {
     meeting_id: String,
 }
 
+#[derive(Deserialize)]
+struct SessionPauseReq {
+    meeting_id: String,
+}
+
 // ---- handlers ------------------------------------------------------------
 
 async fn health() -> Json<Value> {
@@ -173,31 +185,53 @@ async fn session_start<R: Runtime>(
         .filter(|t| !t.trim().is_empty())
         .unwrap_or_else(|| "Google Meet".to_string());
 
-    // The SQLite meeting_id does not exist until meetily stops+saves the
-    // recording, so we mint a gmeet_session_id now and key captions off it.
-    // It is linked to the real meeting_id after save (gmeet_finalize_diarization).
+    // The extension owns the gmeet_session_id and keeps it stable across
+    // pause/resume (same Meet rejoined within the grace window), so captions +
+    // diarization stay unified. Mint one only if the extension didn't provide it.
     let code = req.meeting_code.as_deref().unwrap_or("adhoc");
-    let gmeet_session_id = format!("gmeet-{code}-{}", uuid::Uuid::new_v4());
+    let gmeet_session_id = req
+        .session_id
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| format!("gmeet-{code}-{}", uuid::Uuid::new_v4()));
 
-    // Tell the meetily frontend to start its normal live recording.
+    // Tell the meetily frontend to start (or resume) its live recording.
     let _ = st.app.emit(
         "gmeet-start-recording",
         json!({
             "gmeet_session_id": gmeet_session_id,
             "title": title,
             "meeting_code": req.meeting_code,
+            "resume": req.resume,
         }),
     );
 
     log::info!(
-        "gmeet ingest: session_start -> {} (emitted gmeet-start-recording, participants={})",
+        "gmeet ingest: session_start -> {} (resume={}, participants={})",
         gmeet_session_id,
+        req.resume,
         req.participants.len()
     );
     Ok(Json(SessionStartResp {
         meeting_id: gmeet_session_id,
-        resumed: false,
+        resumed: req.resume,
     }))
+}
+
+async fn session_pause<R: Runtime>(
+    State(st): State<IngestState<R>>,
+    headers: HeaderMap,
+    Json(req): Json<SessionPauseReq>,
+) -> Result<Json<Value>, StatusCode> {
+    if !authed(&headers, &st) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    // Meet closed/paused: pause meetily's recording and start the grace window.
+    let _ = st.app.emit(
+        "gmeet-pause-recording",
+        json!({ "gmeet_session_id": req.meeting_id }),
+    );
+    log::info!("gmeet ingest: session_pause {} (emitted gmeet-pause-recording)", req.meeting_id);
+    Ok(Json(json!({ "paused": true })))
 }
 
 async fn captions<R: Runtime>(
@@ -294,6 +328,7 @@ fn router<R: Runtime>(state: IngestState<R>) -> Router {
     Router::new()
         .route("/gmeet/health", get(health))
         .route("/gmeet/session/start", post(session_start::<R>))
+        .route("/gmeet/session/pause", post(session_pause::<R>))
         .route("/gmeet/session/end", post(session_end::<R>))
         .route("/gmeet/captions", post(captions::<R>))
         .route("/gmeet/participants", post(participants::<R>))

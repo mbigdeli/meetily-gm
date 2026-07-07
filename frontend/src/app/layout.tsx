@@ -21,6 +21,7 @@ import { OnboardingFlow } from '@/components/onboarding'
 import { loadBetaFeatures } from '@/types/betaFeatures'
 import { DownloadProgressToastProvider } from '@/components/shared/DownloadProgressToast'
 import { UpdateCheckProvider } from '@/components/UpdateCheckProvider'
+import { GmeetGraceController } from '@/components/GmeetGraceController'
 import { RecordingPostProcessingProvider } from '@/contexts/RecordingPostProcessingProvider'
 import { ImportAudioDialog, ImportDropOverlay } from '@/components/ImportAudio'
 import { ImportDialogProvider } from '@/contexts/ImportDialogContext'
@@ -127,62 +128,8 @@ export default function RootLayout({
     };
   }, [showOnboarding]);
 
-  // Meetily-GM: Google Meet companion triggers. The desktop ingest server emits
-  // these Tauri events when the Chrome extension detects a Meet start/stop.
-  useEffect(() => {
-    let cancelled = false;
-    let cleanups: UnlistenFn[] = [];
-    const startListener = listen<{ gmeet_session_id: string; title?: string }>(
-      'gmeet-start-recording',
-      (event) => {
-        const { gmeet_session_id, title } = event.payload || ({} as any);
-        console.log('[Layout] gmeet-start-recording', gmeet_session_id, title);
-        if (showOnboarding) {
-          toast.error('Finish setup first', {
-            description: 'Complete onboarding before recording a Google Meet.',
-          });
-          return;
-        }
-        // Remember which gmeet session this recording belongs to; useRecordingStop
-        // reads it after save to run diarization.
-        try {
-          sessionStorage.setItem('gmeet_session_id', gmeet_session_id);
-          if (title) sessionStorage.setItem('gmeet_title', title);
-        } catch {}
-        // Start meetily's normal live recording (reuses the sidebar start path).
-        window.dispatchEvent(new CustomEvent('start-recording-from-sidebar'));
-        toast.success('Recording Google Meet', {
-          description: title ? `Meetily is now recording: ${title}` : 'Meetily is now recording.',
-        });
-      },
-    );
-
-    const stopListener = listen('gmeet-stop-recording', () => {
-      console.log('[Layout] gmeet-stop-recording');
-      // Stop meetily's recording; useRecordingStop saves + diarizes.
-      const w = window as unknown as { handleRecordingStop?: (callApi: boolean) => void };
-      if (typeof w.handleRecordingStop === 'function') {
-        w.handleRecordingStop(true);
-      } else {
-        window.dispatchEvent(new CustomEvent('request-recording-toggle'));
-      }
-    });
-
-    // Await both registrations; if the effect already re-ran, tear them down.
-    Promise.all([startListener, stopListener]).then(([unStart, unStop]) => {
-      if (cancelled) {
-        unStart();
-        unStop();
-      } else {
-        cleanups = [unStart, unStop];
-      }
-    });
-
-    return () => {
-      cancelled = true;
-      cleanups.forEach((fn) => fn());
-    };
-  }, [showOnboarding]);
+  // Meetily-GM: Google Meet start/pause/stop lifecycle + grace window are owned
+  // by <GmeetGraceController /> (mounted below).
 
   // Handle file drop for audio import
   const handleFileDrop = useCallback((paths: string[]) => {
@@ -303,6 +250,9 @@ export default function RootLayout({
                             <ImportDialogProvider onOpen={handleOpenImportDialog}>
                               {/* Download progress toast provider - listens for background downloads */}
                               <DownloadProgressToastProvider />
+
+                              {/* Meetily-GM: Google Meet start/pause/stop + 5-min grace window */}
+                              <GmeetGraceController showOnboarding={showOnboarding} />
 
                               {/* Show onboarding or main app */}
                               {showOnboarding ? (
