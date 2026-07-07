@@ -225,12 +225,24 @@ export class CaptionConsolidator {
       return null;
     }
 
-    const sameSpeaker = this.norm(s) === this.norm(this.speaker);
-    const related = t.startsWith(this.text) || this.text.startsWith(t);
+    // A transiently-missing speaker (avatar/name not yet rendered on this
+    // snapshot, on either side) must NOT be read as a speaker change — an
+    // unknown speaker matches anything, else one turn is split and mislabeled
+    // as "(none)". The related-text check below guards against false merges.
+    const sameSpeaker =
+      s == null || this.speaker == null || this.norm(s) === this.norm(this.speaker);
+    const related = this.isSameTurn(this.text, t);
 
     if (sameSpeaker && related) {
-      // Same turn, still growing/correcting: keep the richer (longer) text.
-      if (t.length >= this.text.length) this.text = t;
+      // Same turn. Adopt the new text on growth ("hi" -> "hi there") and on an
+      // in-place correction ("…the world" -> "…the word"); only keep the current
+      // text when the new snapshot is a strict prefix of it (a transient shorter
+      // render), so we never regress to less content.
+      if (!this.text.startsWith(t)) {
+        this.text = t;
+      }
+      // Fill in the speaker name once it finally renders.
+      if (s != null && this.speaker == null) this.speaker = s;
       return null;
     }
 
@@ -240,6 +252,21 @@ export class CaptionConsolidator {
     this.speaker = s;
     this.text = t;
     return done;
+  }
+
+  /**
+   * Same speaker turn if one string extends the other (Meet growing the caption)
+   * OR they share a dominant common prefix (Meet revising a trailing word in
+   * place: "…the world" -> "…the word"). Without the prefix tolerance an
+   * in-place correction is misread as a new turn and the line is duplicated.
+   */
+  private isSameTurn(a: string, b: string): boolean {
+    if (b.startsWith(a) || a.startsWith(b)) return true;
+    const min = Math.min(a.length, b.length);
+    if (min === 0) return false;
+    let i = 0;
+    while (i < min && a.charCodeAt(i) === b.charCodeAt(i)) i++;
+    return i >= Math.max(8, Math.floor(min * 0.8));
   }
 
   /** Emit the current in-progress turn (call on teardown / meeting end). */

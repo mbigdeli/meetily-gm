@@ -82,30 +82,22 @@ async function stopOffscreenAndUpload(sessionId: string, segmentIndex?: number, 
 }
 
 /**
- * Pauses a session from the background when the Meet tab closes unexpectedly.
- * Saves any in-progress audio segment and sends a pause to the local service.
- * The server-side watchdog will auto-finalize if the user doesn't rejoin within
- * the grace period.
+ * Pauses a session from the background when the Meet tab closes unexpectedly
+ * (tab crash / pagehide not firing, so the content script's teardown never ran).
+ *
+ * Meetily-GM: this MUST use the gmeet HTTP ingest path (same as the normal
+ * INGEST_SESSION_PAUSE handler), NOT the retired Native Messaging host — that
+ * host is not installed in meetily-gm, so a native pause would silently fail
+ * and the recording would run forever with no grace window. meetily's frontend
+ * grace controller finalizes on the 5-minute countdown if the user doesn't
+ * rejoin.
  */
 async function pauseSessionFromBackground(capture: ActiveCapture): Promise<void> {
-  console.info(
-    `[MCS:bg] pausing session ${capture.sessionId} (hasAudio=${capture.hasAudio})`,
-  );
+  console.info(`[MCS:bg] pausing session ${capture.sessionId} (tab closed)`);
   try {
-    if (capture.hasAudio) {
-      try {
-        const result = await stopOffscreenAndUpload(capture.sessionId);
-        if (!result.uploaded) {
-          console.error(`[MCS:bg] pauseSession: audio not uploaded (${result.error ?? "unknown"})`);
-        }
-      } catch (e) {
-        console.error(`[MCS:bg] pauseSession audio: ${e instanceof Error ? e.message : e}`);
-      }
-    }
-    const pausedAt = new Date().toISOString();
-    const pauseResult = await serviceClient.postSessionPause(capture.sessionId, pausedAt);
+    const pauseResult = await gmeetPauseSession(capture.sessionId);
     if (pauseResult.ok) {
-      console.info("[MCS:bg] session paused ✓ (watchdog will finalize if no rejoin)");
+      console.info("[MCS:bg] session paused ✓ (meetily grace window will finalize if no rejoin)");
     } else {
       console.error(`[MCS:bg] session pause failed: ${pauseResult.error}`);
     }

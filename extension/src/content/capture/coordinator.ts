@@ -480,10 +480,14 @@ export class MeetCaptureCoordinator {
     const sid = this.sessionId;
     const meetingCode = extractMeetingCode(this.doc.location.href);
     this.sessionId = null;
-    this.consolidator.reset();
     if (!sid) {
+      // No active session — nothing to flush; just clear consolidator state.
+      this.consolidator.reset();
       return;
     }
+    // NOTE: do NOT reset the consolidator here — the final in-progress turn is
+    // flushed below (consolidator.flush(), which resets internally). Resetting
+    // now would discard the last speaker's utterance every meeting.
 
     if (hadAudio) {
       const keepStream = reason === "stop_flag";

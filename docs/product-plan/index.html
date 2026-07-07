@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Miting — Product Plan</title>
+<style>
+:root{--brand:#3D5AFE;--brand-600:#2F46D0;--brand-50:#EEF1FF;--rec:#E5484D;--ok:#30A46C;
+--bg:#FAFAF9;--surface:#fff;--line:#E7E5E4;--tx:#1C1917;--tx2:#57534E;--tx3:#A8A29E}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Inter,"Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--tx);line-height:1.55;font-size:15px}
+.wrap{max-width:980px;margin:0 auto;padding:48px 24px 80px}
+header .mark{display:inline-grid;place-items:center;width:44px;height:44px;border-radius:12px;background:var(--brand);color:#fff;font-weight:800;font-size:20px}
+h1{font-size:30px;letter-spacing:-.5px;margin-top:14px}
+.tag{color:var(--tx2);font-size:17px;margin-top:4px}
+.meta{color:var(--tx3);font-size:13px;margin-top:8px}
+h2{font-size:19px;margin:44px 0 14px;letter-spacing:-.2px}
+.pitch{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:22px;margin-top:28px;font-size:16px}
+.pitch b{color:var(--brand-600)}
+/* roadmap */
+.phases{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.phase{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px}
+.phase .n{font-size:11.5px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:var(--brand-600)}
+.phase h3{font-size:15px;margin:5px 0 8px}
+.phase ul{margin-inline-start:16px;color:var(--tx2);font-size:13px}
+.phase .t{margin-top:10px;font-size:12px;color:var(--tx3)}
+.phase.p0{border-top:3px solid var(--rec)}.phase.p1{border-top:3px solid var(--brand)}
+.phase.p2{border-top:3px solid var(--ok)}.phase.p3{border-top:3px solid #9333EA}
+/* docs table */
+table{width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+th{font-size:11.5px;text-transform:uppercase;letter-spacing:.4px;color:var(--tx3);text-align:left;padding:10px 14px;border-bottom:1px solid var(--line)}
+td{padding:11px 14px;border-bottom:1px solid var(--line);font-size:14px;vertical-align:top}
+tr:last-child td{border-bottom:none}
+td a{color:var(--brand-600);font-weight:600;text-decoration:none}
+td a:hover{text-decoration:underline}
+.pill{display:inline-block;font-size:11px;font-weight:700;padding:1px 8px;border-radius:99px;background:var(--brand-50);color:var(--brand-600);margin-inline-start:6px}
+/* mockups */
+.shots{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
+.shots a{display:block;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 12px;text-align:center;text-decoration:none;color:var(--tx);font-weight:600;font-size:13px}
+.shots a span{display:block;font-size:22px;margin-bottom:6px}
+.shots a:hover{border-color:var(--brand)}
+footer{margin-top:56px;color:var(--tx3);font-size:13px;border-top:1px solid var(--line);padding-top:18px}
+@media(max-width:760px){.phases{grid-template-columns:1fr 1fr}.shots{grid-template-columns:repeat(2,1fr)}}
+</style></head>
+<body><div class="wrap">
+
+<header>
+  <span class="mark">M</span>
+  <h1>Miting — Product Plan</h1>
+  <div class="tag">AI meeting minutes. Local, private, free — with the integrations everyone else charges for.</div>
+  <div class="meta">Planning package · July 2026 · Mohamad Bigdeli · repo: meetily-gm → <b>miting</b> · site: miting.bigde.li</div>
+</header>
+
+<div class="pitch">
+  Every commercial meeting-notes tool paywalls its integration layer (Granola $14+, tl;dv up to $59/user/mo).
+  <b>Miting gives that layer away</b>: on-device Whisper transcription, AI speaker diarization, summaries through the user's own
+  LLM (Codex CLI / Ollama / any key), push to <b>Jira &amp; Slack</b>, a local <b>MCP server</b> for Claude &amp; ChatGPT —
+  and first-class <b>فارسی</b> support no competitor offers. Open source, no cloud backend, meetings never leave the machine.
+</div>
+
+<h2>Roadmap</h2>
+<div class="phases">
+  <div class="phase p0"><div class="n">Phase 0</div><h3>Identity</h3>
+    <ul><li>Rebrand → Miting</li><li>Own analytics key</li><li>Own update channel</li><li>Repo public</li></ul>
+    <div class="t">~1 week · unblocks everything</div></div>
+  <div class="phase p1"><div class="n">Phase 1</div><h3>PM core</h3>
+    <ul><li>App redesign + Meetings page</li><li>Prompt Studio</li><li>Persian completion</li><li>Participants export</li><li>Diarization hardening</li></ul>
+    <div class="t">~3–4 weeks</div></div>
+  <div class="phase p2"><div class="n">Phase 2</div><h3>Integrations</h3>
+    <ul><li>Connector platform</li><li>Slack recaps</li><li>Jira AI task push</li></ul>
+    <div class="t">~3 weeks</div></div>
+  <div class="phase p3"><div class="n">Phase 3</div><h3>Differentiators</h3>
+    <ul><li>Local MCP server</li><li>Action tracker · decision log</li><li>Weekly digest · RAG chat</li><li>Notion/Linear/GitHub/Teams</li></ul>
+    <div class="t">ongoing</div></div>
+</div>
+
+<h2>Documents</h2>
+<table>
+  <thead><tr><th style="width:36px">#</th><th>Document</th><th>What it specifies</th></tr></thead>
+  <tbody>
+    <tr><td>00</td><td><a href="00-master-plan.md">Master plan</a></td><td>Vision, personas, competitive landscape, phased roadmap, risks</td></tr>
+    <tr><td>01</td><td><a href="01-rebrand-identity.md">Rebrand &amp; identity</a><span class="pill">P0</span></td><td>Name decision (Miting), full rename inventory, About page, license obligations</td></tr>
+    <tr><td>02</td><td><a href="02-analytics-and-updates.md">Analytics &amp; updates</a><span class="pill">P0</span></td><td>Own PostHog project, opt-in consent, privacy policy, own update channel + signing key</td></tr>
+    <tr><td>03</td><td><a href="03-persian-language.md">Persian language</a><span class="pill">P1</span></td><td>Whisper fa plumbing, RTL rendering, Vazirmatn, Persian summaries &amp; styles</td></tr>
+    <tr><td>04</td><td><a href="04-participants-export.md">Participants export</a><span class="pill">P1</span></td><td>Join/leave capture, talk-time, CSV/JSON/MD export</td></tr>
+    <tr><td>05</td><td><a href="05-diarization-hardening.md">Diarization hardening</a><span class="pill">P1</span></td><td>Provider-agnostic merge, speaker rename, confidence UI, re-run</td></tr>
+    <tr><td>06</td><td><a href="06-prompt-studio.md">Prompt Studio</a><span class="pill">P1</span></td><td>Meeting styles, required <code>{{transcript}}</code> variable contract, editor + preview</td></tr>
+    <tr><td>07</td><td><a href="07-jira-integration.md">Jira integration</a><span class="pill">P2</span></td><td>MCP-first auth, AI task suggestions, multi-select co-authoring popup, real payload shapes</td></tr>
+    <tr><td>08</td><td><a href="08-slack-integration.md">Slack integration</a><span class="pill">P2</span></td><td>Manifest bot + webhook fallback, Block Kit recap template</td></tr>
+    <tr><td>09</td><td><a href="09-meetings-page.md">Meetings page</a><span class="pill">P1</span></td><td>Library table, star, priority, filters, bulk actions, schema migration</td></tr>
+    <tr><td>10</td><td><a href="10-connector-platform.md">Connector platform &amp; local MCP</a><span class="pill">P2/P3</span></td><td>Connector traits, keychain secrets, delivery log, miting-mcp server</td></tr>
+    <tr><td>11</td><td><a href="11-feature-backlog.md">Feature backlog</a><span class="pill">P3+</span></td><td>20 prioritized ideas for PMs, tech leads, marketers</td></tr>
+    <tr><td>12</td><td><a href="12-open-source-launch.md">Open-source launch</a><span class="pill">launch</span></td><td>README, landing page (miting.bigde.li), launch sequence, personal-branding playbook</td></tr>
+    <tr><td>13</td><td><a href="13-app-redesign.md">App redesign</a><span class="pill">P1</span></td><td>Design critique, new IA, design tokens, screen specs, a11y &amp; RTL</td></tr>
+    <tr><td>14</td><td><a href="14-claude-code-provider.md">Claude Code CLI provider</a><span class="pill">P1</span></td><td>Summaries on a Claude Pro/Max subscription — no API key, sibling of Codex; don't churn Claude users</td></tr>
+  </tbody>
+</table>
+
+<h2>Mockups</h2>
+<div class="shots">
+  <a href="mockups/home.html"><span>●</span>Record (home)</a>
+  <a href="mockups/meetings-list.html"><span>▤</span>Meetings library</a>
+  <a href="mockups/meeting-detail.html"><span>📋</span>Detail + Jira flow</a>
+  <a href="mockups/prompt-studio.html"><span>✎</span>Prompt Studio</a>
+  <a href="mockups/integrations.html"><span>⇄</span>Integrations hub</a>
+</div>
+
+<footer>
+  Planning docs only — no application code in this package. Fork of <a href="https://github.com/Zackriya-Solutions/meeting-minutes" style="color:var(--tx2)">Meetily</a> (MIT, attribution preserved).
+  Built by Mohamad Bigdeli · miting.bigde.li
+</footer>
+</div></body></html>

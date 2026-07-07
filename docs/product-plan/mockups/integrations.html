@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Miting mockup — Integrations hub</title><link rel="stylesheet" href="_mockup.css">
+<style>
+.hub{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.conn .head{display:flex;gap:10px;align-items:center}
+.logo-sq{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;font-weight:800;color:#fff;font-size:14px}
+.status{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--tx2);margin-top:8px}
+.sdot{width:8px;height:8px;border-radius:50%}
+.mcp{background:linear-gradient(120deg,var(--brand-50),#fff);border:1px solid var(--line)}
+code.snip{display:block;background:#1C1917;color:#E7E5E4;font:12px/1.6 ui-monospace,Consolas,monospace;padding:10px 12px;border-radius:8px;margin-top:8px;overflow-x:auto}
+</style></head>
+<body><div class="app">
+
+<nav class="nav">
+  <div class="logo"><span class="mark">M</span> Miting</div>
+  <a href="home.html">● Record</a>
+  <a href="meetings-list.html">▤ Meetings</a>
+  <a class="on" href="integrations.html">⇄ Integrations</a>
+  <a href="prompt-studio.html">✎ Prompt Studio</a>
+  <a href="#">⚙ Settings</a>
+  <a href="#">ⓘ About</a>
+  <div class="spacer"></div>
+</nav>
+
+<main class="main">
+  <h1>Integrations</h1>
+  <div class="sub">Connect your own accounts. Tokens live in the Windows Credential Manager — never in the database.</div>
+
+  <div class="hub" style="margin-top:18px">
+    <div class="card conn">
+      <div class="head"><span class="logo-sq" style="background:#0052CC">J</span><div><strong>Jira</strong><div style="font-size:12px;color:var(--tx3)">Create issues from meetings</div></div></div>
+      <div class="status"><span class="sdot" style="background:var(--ok)"></span> Connected — drbalcony.atlassian.net · mohamad@…</div>
+      <div style="font-size:12.5px;color:var(--tx2);margin-top:6px">Default: <span class="badge">DB · Task</span> · label <span class="badge">miting</span></div>
+      <div class="row" style="margin-top:12px"><button class="btn">Manage</button><button class="btn ghost">Disconnect</button></div>
+    </div>
+
+    <div class="card conn">
+      <div class="head"><span class="logo-sq" style="background:#611F69">S</span><div><strong>Slack</strong><div style="font-size:12px;color:var(--tx3)">Send recaps to channels</div></div></div>
+      <div class="status"><span class="sdot" style="background:var(--ok)"></span> Connected — DrBalcony workspace (bot)</div>
+      <div style="font-size:12.5px;color:var(--tx2);margin-top:6px">Recent: <span class="badge">#product</span> <span class="badge">#design</span></div>
+      <div class="row" style="margin-top:12px"><button class="btn">Manage</button><button class="btn ghost">Disconnect</button></div>
+    </div>
+
+    <div class="card conn">
+      <div class="head"><span class="logo-sq" style="background:#000">N</span><div><strong>Notion</strong><div style="font-size:12px;color:var(--tx3)">Publish notes to a database</div></div></div>
+      <div class="status"><span class="sdot" style="background:var(--tx3)"></span> Not connected</div>
+      <div style="font-size:12.5px;color:var(--tx2);margin-top:6px">Setup ≈ 3 min with an integration token.</div>
+      <div class="row" style="margin-top:12px"><button class="btn primary">Connect</button></div>
+    </div>
+
+    <div class="card conn">
+      <div class="head"><span class="logo-sq" style="background:#5E6AD2">L</span><div><strong>Linear</strong><div style="font-size:12px;color:var(--tx3)">Create issues via API key</div></div></div>
+      <div class="status"><span class="sdot" style="background:var(--tx3)"></span> Not connected</div>
+      <div class="row" style="margin-top:12px"><button class="btn primary">Connect</button></div>
+    </div>
+
+    <div class="card conn">
+      <div class="head"><span class="logo-sq" style="background:#24292F">G</span><div><strong>GitHub Issues</strong><div style="font-size:12px;color:var(--tx3)">Device-flow sign-in</div></div></div>
+      <div class="status"><span class="sdot" style="background:var(--warn)"></span> Needs re-authentication</div>
+      <div class="row" style="margin-top:12px"><button class="btn primary">Re-connect</button></div>
+    </div>
+
+    <div class="card conn">
+      <div class="head"><span class="logo-sq" style="background:#6264A7">T</span><div><strong>MS Teams</strong><div style="font-size:12px;color:var(--tx3)">Workflows webhook</div></div></div>
+      <div class="status"><span class="sdot" style="background:var(--tx3)"></span> Not connected</div>
+      <div class="row" style="margin-top:12px"><button class="btn primary">Connect</button></div>
+    </div>
+  </div>
+
+  <div class="card mcp" style="margin-top:16px">
+    <div class="row between">
+      <div><strong>🤖 AI assistants (MCP)</strong>
+        <div style="font-size:13px;color:var(--tx2);margin-top:3px">Let Claude or other MCP clients search your meetings — locally. Nothing leaves this machine.</div></div>
+      <span class="chip ok">server ready</span>
+    </div>
+    <code class="snip">claude mcp add miting -- "C:\Program Files\Miting\miting-mcp.exe" --db "%APPDATA%\li.bigde.miting\meetings.db"</code>
+    <div class="row" style="margin-top:10px">
+      <button class="btn">Copy for Claude Desktop</button>
+      <button class="btn">Copy for Claude Code</button>
+      <button class="btn">Copy for Cursor</button>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <strong>Delivery log</strong>
+    <table style="margin-top:10px;border:none">
+      <thead><tr><th>When</th><th>Meeting</th><th>Connector</th><th>Ref</th></tr></thead>
+      <tbody>
+        <tr><td class="num">Jul 5 · 11:05</td><td>Q3 roadmap review</td><td>Jira</td><td><span class="badge">DB-457</span></td></tr>
+        <tr><td class="num">Jul 5 · 11:02</td><td>Q3 roadmap review</td><td>Slack</td><td><span class="badge">#product</span></td></tr>
+        <tr><td class="num">Jun 30 · 12:14</td><td>Retro — sprint 34</td><td>Jira</td><td><span class="badge">DB-441</span> <span class="badge">DB-442</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+</main>
+</div>
+<div class="note">MOCKUP — docs/product-plan/10 §7</div>
+</body></html>

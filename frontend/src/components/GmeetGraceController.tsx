@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { listen, emit, type UnlistenFn } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
+import { appDataDir } from '@tauri-apps/api/path';
 import { toast } from 'sonner';
 
 const GRACE_SECONDS = 300; // 5-minute resume window after a Meet closes/pauses.
@@ -24,6 +25,10 @@ export function GmeetGraceController({ showOnboarding }: { showOnboarding: boole
 
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const graceActiveRef = useRef(false);
+  // A gmeet recording is live (recording, or paused within the grace window).
+  // Guards against spurious/duplicate pause/stop events finalizing stale state.
+  const activeRef = useRef(false);
+  const finalizingRef = useRef(false);
   const onboardingRef = useRef(showOnboarding);
   onboardingRef.current = showOnboarding;
 
@@ -36,11 +41,45 @@ export function GmeetGraceController({ showOnboarding }: { showOnboarding: boole
     setGraceActive(false);
   };
 
-  const finalizeNow = () => {
+  const finalizeNow = async () => {
+    // Ignore stray finalize when nothing is active (spurious/duplicate stop).
+    if (!activeRef.current && !graceActiveRef.current) return;
+    if (finalizingRef.current) return;
+    finalizingRef.current = true;
+    activeRef.current = false;
     clearCountdown();
-    const w = window as unknown as { handleRecordingStop?: (callApi: boolean) => void };
-    if (typeof w.handleRecordingStop === 'function') {
-      w.handleRecordingStop(true);
+
+    // 1) Actually stop the Rust recorder. handleRecordingStop does NOT call
+    //    stop_recording (it assumes the UI Stop button already did) — in the
+    //    gmeet path nothing else does, so without this the mic is never
+    //    released and no WAV is written. This mirrors RecordingControls.
+    try {
+      const dataDir = await appDataDir();
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const savePath = `${dataDir}/recording-${timestamp}.wav`;
+      await invoke('stop_recording', { args: { save_path: savePath } });
+    } catch (err) {
+      console.warn('[gmeet] stop_recording failed (may already be stopped):', err);
+    }
+
+    // 2) Drive post-processing (DB save → diarization → summary) via the
+    //    always-mounted RecordingPostProcessingProvider, which listens for
+    //    'recording-stop-complete'. Route-independent, unlike
+    //    window.handleRecordingStop (deleted when the "/" route unmounts).
+    try {
+      await emit('recording-stop-complete', true);
+    } catch (err) {
+      console.warn('[gmeet] emit recording-stop-complete failed; falling back:', err);
+      const w = window as unknown as { handleRecordingStop?: (callApi: boolean) => void };
+      if (typeof w.handleRecordingStop === 'function') {
+        w.handleRecordingStop(true);
+      } else {
+        toast.error('Could not finalize the meeting', {
+          description: 'Open Meetily and stop the recording manually to save it.',
+        });
+      }
+    } finally {
+      finalizingRef.current = false;
     }
   };
 
@@ -53,7 +92,7 @@ export function GmeetGraceController({ showOnboarding }: { showOnboarding: boole
     tickRef.current = setInterval(() => {
       const left = Math.max(0, Math.round((deadline - Date.now()) / 1000));
       setSecondsLeft(left);
-      if (left <= 0) finalizeNow();
+      if (left <= 0) void finalizeNow();
     }, 1000);
   };
 
@@ -72,12 +111,14 @@ export function GmeetGraceController({ showOnboarding }: { showOnboarding: boole
         if (resume && graceActiveRef.current) {
           // Same Meet rejoined within the window → resume, keep the session.
           clearCountdown();
+          activeRef.current = true;
           invoke('resume_recording').catch((err) => console.warn('[gmeet] resume failed', err));
           toast.success('Resumed recording', { description: 'Continuing the same meeting.' });
           return;
         }
         // Fresh start (or resume arrived with no active grace → start clean).
         clearCountdown();
+        activeRef.current = true;
         try {
           sessionStorage.setItem('gmeet_session_id', gmeet_session_id);
           if (title) sessionStorage.setItem('gmeet_title', title);
@@ -91,12 +132,14 @@ export function GmeetGraceController({ showOnboarding }: { showOnboarding: boole
 
     const pauseL = listen<{ gmeet_session_id: string }>('gmeet-pause-recording', () => {
       // Meet closed/paused → pause recording and open the grace window.
+      // Ignore a pause that arrives when no gmeet recording is active.
+      if (!activeRef.current) return;
       invoke('pause_recording').catch((err) => console.warn('[gmeet] pause failed', err));
       startCountdown();
     });
 
     const stopL = listen('gmeet-stop-recording', () => {
-      finalizeNow();
+      void finalizeNow();
     });
 
     Promise.all([startL, pauseL, stopL]).then((fns) => {
@@ -127,7 +170,7 @@ export function GmeetGraceController({ showOnboarding }: { showOnboarding: boole
       </div>
       <button
         type="button"
-        onClick={finalizeNow}
+        onClick={() => void finalizeNow()}
         className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
       >
         Stop &amp; summarize now

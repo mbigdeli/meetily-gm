@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Miting mockup — Meeting detail + Jira flow</title><link rel="stylesheet" href="_mockup.css">
+<style>
+.split{display:grid;grid-template-columns:1.5fr 1fr;gap:16px;align-items:start}
+.task{display:flex;gap:10px;align-items:flex-start;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+.task.sel{border-color:var(--brand);background:var(--brand-50)}
+.task input{margin-top:3px}
+.jira{width:22px;height:22px;border-radius:6px;background:#DEEBFF;color:#0052CC;display:grid;place-items:center;font-weight:800;font-size:11px;cursor:pointer;flex-shrink:0}
+.quote{color:var(--tx3);font-size:12.5px;margin-top:3px}
+.modal-veil{position:fixed;inset:0;background:rgba(20,18,16,.45);display:grid;place-items:center}
+.modal{width:560px;max-width:92vw;background:var(--surface);border-radius:14px;padding:20px;box-shadow:0 18px 60px rgba(0,0,0,.25)}
+.modal h3{font-size:15.5px;margin-bottom:2px}
+.modal textarea{width:100%;min-height:110px;margin-top:8px;font:12.5px/1.55 ui-monospace,Consolas,monospace;padding:10px;border:1px solid var(--line);border-radius:8px;color:var(--tx)}
+.step{display:flex;gap:6px;align-items:center;color:var(--tx3);font-size:12px;margin-bottom:10px}
+.step b{color:var(--brand-600)}
+.field{margin-top:10px}.field label{font-size:11.5px;font-weight:700;color:var(--tx3);text-transform:uppercase;letter-spacing:.4px}
+.field .input{width:100%;margin-top:4px}
+.talk{height:6px;border-radius:4px;background:var(--brand);opacity:.85}
+</style></head>
+<body><div class="app">
+
+<nav class="nav">
+  <div class="logo"><span class="mark">M</span> Miting</div>
+  <a href="home.html">● Record</a>
+  <a class="on" href="meetings-list.html">▤ Meetings</a>
+  <a href="integrations.html">⇄ Integrations</a>
+  <a href="prompt-studio.html">✎ Prompt Studio</a>
+  <a href="#">⚙ Settings</a>
+  <a href="#">ⓘ About</a>
+  <div class="spacer"></div>
+</nav>
+
+<main class="main">
+  <div class="crumbs">Meetings / Q3 roadmap review</div>
+  <div class="row between">
+    <div class="row">
+      <h1>Q3 roadmap review</h1>
+      <span class="star on" title="Starred">★</span><span class="flag" title="High priority">⚑</span>
+    </div>
+    <div class="row">
+      <button class="btn">Send to Slack</button>
+      <button class="btn primary">✦ Find tasks</button>
+      <button class="btn ghost">⋯</button>
+    </div>
+  </div>
+  <div class="sub num">Jul 5, 2026 · 10:00 · 48 min · style: <span class="badge">Project sync</span> · <span class="chip ok">summary ✓</span> <span class="chip ok">diarized ✓</span> · sent: <span class="badge">#product</span></div>
+
+  <div class="tabs">
+    <a class="on" href="#">Overview</a><a href="#">Transcript</a><a href="#">Details</a>
+  </div>
+
+  <div class="split">
+    <section class="grid">
+      <div class="card">
+        <div class="row between"><strong>Summary</strong><button class="btn ghost" style="font-size:12px">Regenerate ▾</button></div>
+        <p style="margin-top:8px;color:var(--tx2)">The team agreed to descope the loyalty module from Q3 and pull the payments-retry epic forward. Main risk: SSO vendor timeline slipping past August…</p>
+        <p style="margin-top:8px"><strong>Key decisions</strong></p>
+        <ul style="margin:4px 0 0 18px;color:var(--tx2)">
+          <li>Loyalty module → Q4; payments-retry epic starts next sprint.</li>
+          <li>Design review moves to Tuesdays (Sarah owns).</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="row between">
+          <strong>Suggested tasks <span class="badge">4</span></strong>
+          <span style="font-size:12.5px;color:var(--tx2)">2 selected → <button class="btn primary" style="padding:5px 11px">Create 2 Jira issues…</button></span>
+        </div>
+        <div class="grid" style="margin-top:10px">
+          <div class="task sel">
+            <input type="checkbox" checked>
+            <div style="flex:1"><strong>Follow up with SSO vendor on August timeline</strong>
+              <div class="quote">“…someone needs to pin Okta down on the migration date this week.” — Mohamad</div></div>
+            <div class="jira" title="Create Jira issue">J</div>
+          </div>
+          <div class="task sel">
+            <input type="checkbox" checked>
+            <div style="flex:1"><strong>Draft payments-retry epic and split stories</strong>
+              <div class="quote">“I’ll break the retry work into stories before planning.” — Sarah</div></div>
+            <div class="jira">J</div>
+          </div>
+          <div class="task">
+            <input type="checkbox">
+            <div style="flex:1"><strong>Update roadmap page for Q4 loyalty move</strong>
+              <div class="quote">“the roadmap page still shows loyalty in Q3.” — Josh</div>
+              <span class="badge" title="Already pushed">DB-457 ✓</span></div>
+            <div class="jira">J</div>
+          </div>
+          <div class="task">
+            <input type="checkbox">
+            <div style="flex:1"><strong>Schedule design review slot for Tuesdays</strong>
+              <div class="quote">“Sarah, can you set the recurring invite?” — Mohamad</div></div>
+            <div class="jira">J</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <aside class="grid">
+      <div class="card">
+        <div class="row between"><strong>Participants <span class="badge">6</span></strong><button class="btn ghost" style="font-size:12px">Export ▾</button></div>
+        <div class="grid" style="grid-template-columns:1fr auto;row-gap:9px;margin-top:10px;font-size:13px">
+          <span class="row"><span class="avatar">MB</span> Mohamad <span style="color:var(--tx3);font-size:11.5px">(you)</span></span><span class="talk" style="width:110px"></span>
+          <span class="row"><span class="avatar">SD</span> Sarah D.</span><span class="talk" style="width:80px"></span>
+          <span class="row"><span class="avatar">JK</span> Josh K.</span><span class="talk" style="width:52px"></span>
+          <span class="row"><span class="avatar" dir="rtl">ع‌ر</span> <span dir="rtl" class="fa">علی رضایی</span></span><span class="talk" style="width:38px"></span>
+        </div>
+        <div style="color:var(--tx3);font-size:11.5px;margin-top:8px">joined ~10:02 – 10:48 · bars = talk time</div>
+      </div>
+      <div class="card">
+        <strong>Activity</strong>
+        <ul style="margin:8px 0 0 16px;color:var(--tx2);font-size:12.5px">
+          <li>Recap sent to <span class="badge">#product</span> · 11:02</li>
+          <li><span class="badge">DB-457</span> created in Jira · 11:05</li>
+        </ul>
+      </div>
+    </aside>
+  </div>
+</main>
+</div>
+
+<!-- Jira co-authoring popup (stage B: preview) -->
+<div class="modal-veil">
+  <div class="modal">
+    <div class="step">Creating issue <b>1 of 2</b> · project <b>DrBalcony (DB)</b> · type <b>Task</b> · <a href="#" style="color:var(--brand-600)">edit prompt ←</a></div>
+    <h3>Follow up with SSO vendor on August timeline</h3>
+    <div class="field"><label>Description (AI draft — editable)</label>
+      <textarea>Context: raised in "Q3 roadmap review" (Jul 5). Okta migration date may slip past August, blocking the SSO rollout.
+
+Acceptance criteria:
+- Confirmed written timeline from Okta
+- Risk noted on roadmap page if date > Aug 31</textarea></div>
+    <div class="row" style="margin-top:10px;gap:14px">
+      <div class="field" style="flex:1"><label>Labels</label><div class="input">miting × &nbsp; sso ×</div></div>
+      <div class="field" style="flex:1"><label>Assignee</label><div class="input">Mohamad Bigdeli</div></div>
+      <div class="field"><label>Due</label><div class="input num">2026-07-13</div></div>
+    </div>
+    <div class="row between" style="margin-top:16px">
+      <button class="btn ghost">Skip this task</button>
+      <div class="row"><button class="btn">↺ Regenerate</button><button class="btn primary">Create in Jira →</button></div>
+    </div>
+  </div>
+</div>
+
+<div class="note">MOCKUP — docs/product-plan/07 &amp; 13 · popup shows stage B (preview) of the co-authoring flow</div>
+</body></html>

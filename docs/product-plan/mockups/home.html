@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Miting mockup — Record (home)</title><link rel="stylesheet" href="_mockup.css">
+<style>
+.hero{max-width:640px;margin:6vh auto 0}
+.recbtn{width:74px;height:74px;border-radius:50%;background:var(--rec);border:none;color:#fff;font-size:26px;cursor:pointer;box-shadow:0 10px 30px rgba(229,72,77,.35)}
+.setup{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px}
+.recent{max-width:640px;margin:26px auto}
+.recent .item{display:flex;justify-content:space-between;padding:10px 4px;border-bottom:1px solid var(--line);font-size:13.5px}
+.hint{display:flex;gap:10px;align-items:center;background:var(--brand-50);border-radius:10px;padding:11px 14px;color:var(--brand-600);font-size:13px;margin-top:18px}
+</style></head>
+<body><div class="app">
+
+<nav class="nav">
+  <div class="logo"><span class="mark">M</span> Miting</div>
+  <a class="on" href="home.html">● Record</a>
+  <a href="meetings-list.html">▤ Meetings</a>
+  <a href="integrations.html">⇄ Integrations</a>
+  <a href="prompt-studio.html">✎ Prompt Studio</a>
+  <a href="#">⚙ Settings</a>
+  <a href="#">ⓘ About</a>
+  <div class="spacer"></div>
+</nav>
+
+<main class="main">
+  <div class="hero">
+    <div class="card" style="text-align:center;padding:34px 28px">
+      <button class="recbtn" title="Start recording">●</button>
+      <h1 style="margin-top:14px">Start a recording</h1>
+      <div class="sub">Mic + system audio · everything stays on this device</div>
+      <div class="setup">
+        <input class="input" placeholder="Meeting title (optional)" style="grid-column:1/-1">
+        <select class="input"><option>Style: Project sync</option><option>Standup</option><option>Customer call</option><option class="fa">جلسه استاندارد</option></select>
+        <select class="input"><option>Language: Auto-detect</option><option>English</option><option>فارسی (Persian)</option></select>
+      </div>
+      <div style="margin-top:12px;font-size:12.5px;color:var(--tx3)">
+        🎙 Rode NT-USB &nbsp;·&nbsp; 🔊 System (WASAPI loopback) &nbsp;·&nbsp; whisper large-v3 · <a href="#" style="color:var(--brand-600)">change</a>
+      </div>
+    </div>
+
+    <div class="hint">🧩 Recording a Google Meet call? The companion extension captures captions, names &amp; participants. <a href="#" style="font-weight:700">Set up →</a></div>
+  </div>
+
+  <div class="recent">
+    <div class="row between"><strong>Recent</strong><a href="meetings-list.html" style="color:var(--brand-600);font-size:13px">All meetings →</a></div>
+    <div class="item"><span>★ Q3 roadmap review <span class="chip ok">summary ✓</span></span><span class="num" style="color:var(--tx3)">yesterday · 48 m</span></div>
+    <div class="item"><span dir="rtl" class="fa">جلسه هفتگی تیم دیزاین <span class="chip ok" dir="ltr">diarized ✓</span></span><span class="num" style="color:var(--tx3)">Jul 4 · 37 m</span></div>
+    <div class="item"><span>Customer call — Northwind <span class="chip warn">summary running…</span></span><span class="num" style="color:var(--tx3)">Jul 3 · 52 m</span></div>
+  </div>
+</main>
+</div>
+<div class="note">MOCKUP — docs/product-plan/13 §4.1 (idle state)</div>
+</body></html>

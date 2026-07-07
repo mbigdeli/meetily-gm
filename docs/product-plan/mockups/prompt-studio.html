@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Miting mockup — Prompt Studio</title><link rel="stylesheet" href="_mockup.css">
+<style>
+.studio{display:grid;grid-template-columns:250px 1fr;gap:16px;align-items:start}
+.style-item{display:flex;gap:9px;align-items:center;padding:9px 10px;border-radius:8px;cursor:pointer;font-weight:600;font-size:13.5px;color:var(--tx2)}
+.style-item.on{background:var(--brand-50);color:var(--brand-600)}
+.editor textarea{width:100%;min-height:250px;font:13px/1.6 ui-monospace,Consolas,monospace;padding:12px;border:1px solid var(--line);border-radius:10px;color:var(--tx);background:var(--surface)}
+.varchip{cursor:pointer}
+.req{outline:2px solid var(--ok);outline-offset:1px}
+.footer-hint{display:flex;justify-content:space-between;font-size:12px;color:var(--tx3);margin-top:6px}
+</style></head>
+<body><div class="app">
+
+<nav class="nav">
+  <div class="logo"><span class="mark">M</span> Miting</div>
+  <a href="home.html">● Record</a>
+  <a href="meetings-list.html">▤ Meetings</a>
+  <a href="integrations.html">⇄ Integrations</a>
+  <a class="on" href="prompt-studio.html">✎ Prompt Studio</a>
+  <a href="#">⚙ Settings</a>
+  <a href="#">ⓘ About</a>
+  <div class="spacer"></div>
+</nav>
+
+<main class="main">
+  <div class="row between">
+    <div><h1>Prompt Studio</h1><div class="sub">Meeting styles control exactly what is sent to your AI. What you see is what the model gets.</div></div>
+    <button class="btn primary">+ New style</button>
+  </div>
+
+  <div class="studio" style="margin-top:18px">
+    <div class="card" style="padding:10px">
+      <div class="style-item">📋 Standard meeting <span class="chip" style="margin-inline-start:auto">built-in</span></div>
+      <div class="style-item">🌅 Daily standup <span class="chip" style="margin-inline-start:auto">built-in</span></div>
+      <div class="style-item on">🔁 Project sync <span class="chip" style="margin-inline-start:auto">built-in</span></div>
+      <div class="style-item">🪞 Retrospective</div>
+      <div class="style-item">📞 Customer call</div>
+      <div class="style-item fa" dir="rtl">📋 جلسه استاندارد</div>
+      <div class="style-item fa" dir="rtl">🌅 جلسه روزانه</div>
+      <div class="style-item">🎯 My exec brief <span class="chip brand" style="margin-inline-start:auto">yours</span></div>
+      <div style="border-top:1px solid var(--line);margin-top:8px;padding-top:8px;display:flex;gap:8px">
+        <button class="btn ghost" style="font-size:12px">Import</button><button class="btn ghost" style="font-size:12px">Export</button>
+      </div>
+    </div>
+
+    <div class="grid editor">
+      <div class="card">
+        <div class="row" style="gap:10px">
+          <input class="input" value="Project sync" style="font-weight:700;width:220px">
+          <input class="input" value="Status, decisions, blockers, actions" style="flex:1">
+          <button class="btn ghost">Reset to default</button>
+        </div>
+
+        <div style="margin:14px 0 6px;font-size:11.5px;font-weight:700;color:var(--tx3);text-transform:uppercase;letter-spacing:.4px">Insert variable</div>
+        <div class="row" style="flex-wrap:wrap;gap:6px">
+          <span class="chip brand varchip req" title="Required — expands to the diarized transcript">{{transcript}} ✱</span>
+          <span class="chip varchip">{{meeting_title}}</span>
+          <span class="chip varchip">{{date}}</span>
+          <span class="chip varchip">{{duration}}</span>
+          <span class="chip varchip">{{participants}}</span>
+          <span class="chip varchip">{{language}}</span>
+          <span class="chip varchip">{{my_name}}</span>
+        </div>
+
+        <textarea>You are writing minutes for a recurring project sync.
+
+Meeting: {{meeting_title}} — {{date}} ({{duration}}, attendees: {{participants}})
+
+From the transcript below, produce:
+1. **Progress** — what moved since last sync, one bullet per stream.
+2. **Decisions** — each with the person who made the call.
+3. **Blockers & risks** — with owner and needed unblock.
+4. **Action items** — table: owner | task | due. Only real commitments.
+
+Be concrete. Skip pleasantries. Use the speakers' names.
+
+Transcript:
+{{transcript}}</textarea>
+        <div class="footer-hint">
+          <span style="color:var(--ok)">✓ contains required {{transcript}}</span>
+          <span>≈ 7,900 tokens with a 45-min meeting · fits llama3.1-8b (8k) with chunking</span>
+        </div>
+      </div>
+
+      <div class="row between">
+        <div class="row">
+          <button class="btn">👁 Preview with… <span style="color:var(--tx3)">Q3 roadmap review ▾</span></button>
+          <button class="btn">▶ Test run</button>
+        </div>
+        <button class="btn primary">Save style</button>
+      </div>
+    </div>
+  </div>
+</main>
+</div>
+<div class="note">MOCKUP — docs/product-plan/06 · save is blocked if {{transcript}} is missing</div>
+</body></html>

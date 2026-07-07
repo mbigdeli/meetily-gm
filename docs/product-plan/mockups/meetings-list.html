@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Miting mockup — Meetings library</title><link rel="stylesheet" href="_mockup.css"></head>
+<body><div class="app">
+
+<nav class="nav">
+  <div class="logo"><span class="mark">M</span> Miting</div>
+  <a href="home.html">● Record</a>
+  <a class="on" href="meetings-list.html">▤ Meetings</a>
+  <a href="integrations.html">⇄ Integrations</a>
+  <a href="prompt-studio.html">✎ Prompt Studio</a>
+  <a href="#">⚙ Settings</a>
+  <a href="#">ⓘ About</a>
+  <div class="spacer"></div>
+  <div class="live"><span class="dot"></span> Recording · 12:41 — Sprint sync</div>
+</nav>
+
+<main class="main">
+  <div class="row between">
+    <div><h1>Meetings</h1><div class="sub">42 meetings · 31 h recorded</div></div>
+    <button class="btn rec">● New recording</button>
+  </div>
+
+  <div class="toolbar">
+    <input class="input" style="width:260px" placeholder="Search titles &amp; transcripts…  (Ctrl K)">
+    <span class="chip brand">All</span><span class="chip">★ Starred</span><span class="chip">⚑ High priority</span>
+    <select class="input"><option>Status: Any</option></select>
+    <select class="input"><option>Language: Any</option></select>
+    <select class="input"><option>Sort: Date ↓</option><option>Duration</option><option>Priority</option></select>
+  </div>
+
+  <table>
+    <thead><tr>
+      <th style="width:34px">★</th><th>Title</th><th>Recorded</th><th>Duration</th><th>👥</th><th>Status</th><th>Priority</th><th>Sent to</th><th style="width:40px"></th>
+    </tr></thead>
+    <tbody>
+      <tr>
+        <td><span class="star on">★</span></td>
+        <td><strong>Sprint sync — payments squad</strong> <span class="chip rec">● recording</span></td>
+        <td class="num">today · 14:02</td><td class="num">12 m</td><td class="num">6</td>
+        <td><span class="chip">live</span></td><td><span class="flag">⚑</span> high</td><td>—</td><td>⋯</td>
+      </tr>
+      <tr>
+        <td><span class="star on">★</span></td>
+        <td><strong>Q3 roadmap review</strong></td>
+        <td class="num">yesterday · 10:00</td><td class="num">48 m</td><td class="num">9</td>
+        <td><span class="chip ok">summary ✓</span> <span class="chip ok">diarized ✓</span></td>
+        <td><span class="flag">⚑</span> high</td>
+        <td><span class="badge">DB-457</span> <span class="badge">#product</span></td><td>⋯</td>
+      </tr>
+      <tr>
+        <td><span class="star">★</span></td>
+        <td dir="rtl" class="fa"><strong>جلسه هفتگی تیم دیزاین</strong></td>
+        <td class="num">Jul 4 · 16:30</td><td class="num">37 m</td><td class="num">5</td>
+        <td><span class="chip ok">summary ✓</span> <span class="chip ok">diarized ✓</span></td>
+        <td>normal</td><td><span class="badge">#design</span></td><td>⋯</td>
+      </tr>
+      <tr>
+        <td><span class="star">★</span></td>
+        <td><strong>Customer call — Northwind onboarding</strong></td>
+        <td class="num">Jul 3 · 09:15</td><td class="num">52 m</td><td class="num">4</td>
+        <td><span class="chip warn">summary running…</span></td>
+        <td>normal</td><td>—</td><td>⋯</td>
+      </tr>
+      <tr>
+        <td><span class="star">★</span></td>
+        <td><strong>1:1 — Mohamad / Sarah</strong></td>
+        <td class="num">Jul 2 · 15:00</td><td class="num">29 m</td><td class="num">2</td>
+        <td><span class="chip ok">summary ✓</span></td>
+        <td>none</td><td>—</td><td>⋯</td>
+      </tr>
+      <tr>
+        <td><span class="star">★</span></td>
+        <td><strong>Retro — sprint 34</strong></td>
+        <td class="num">Jun 30 · 11:00</td><td class="num">41 m</td><td class="num">7</td>
+        <td><span class="chip ok">summary ✓</span> <span class="chip ok">diarized ✓</span></td>
+        <td>normal</td><td><span class="badge">DB-441</span> <span class="badge">DB-442</span> <span class="badge">#eng</span></td><td>⋯</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="row between" style="margin-top:12px;color:var(--tx3);font-size:12.5px">
+    <span>2 selected → <button class="btn" style="padding:4px 10px">★ Star</button> <button class="btn" style="padding:4px 10px">⚑ Priority ▾</button> <button class="btn" style="padding:4px 10px">Export ▾</button> <button class="btn" style="padding:4px 10px;color:var(--rec)">Delete</button></span>
+    <span>1–6 of 42 · <a href="#" style="color:var(--brand-600)">Next →</a></span>
+  </div>
+</main>
+</div>
+<div class="note">MOCKUP — docs/product-plan/09 &amp; 13</div>
+</body></html>

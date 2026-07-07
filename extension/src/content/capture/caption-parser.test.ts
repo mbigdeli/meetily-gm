@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
 import {
+  CaptionConsolidator,
   CaptionDedupeState,
   extractCaptionSnapshot,
   extractFromRegion,
@@ -334,5 +335,71 @@ describe("CaptionDedupeState", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CaptionConsolidator — one line per speaker turn
+// ---------------------------------------------------------------------------
+
+describe("CaptionConsolidator", () => {
+  it("holds a growing turn and emits nothing until a boundary", () => {
+    const c = new CaptionConsolidator();
+    expect(c.process(snap("Hi", "Alice"))).toBeNull();
+    expect(c.process(snap("Hi there", "Alice"))).toBeNull();
+    expect(c.process(snap("Hi there team", "Alice"))).toBeNull();
+    // flush yields the single consolidated turn with the richest text.
+    expect(c.flush()).toEqual({ speaker: "Alice", text: "Hi there team" });
+  });
+
+  it("emits the previous turn when the speaker changes", () => {
+    const c = new CaptionConsolidator();
+    c.process(snap("Hello everyone", "Alice"));
+    const done = c.process(snap("My turn now", "Bob"));
+    expect(done).toEqual({ speaker: "Alice", text: "Hello everyone" });
+    expect(c.flush()).toEqual({ speaker: "Bob", text: "My turn now" });
+  });
+
+  it("does NOT split a turn when the speaker hint is transiently null (bug 8)", () => {
+    const c = new CaptionConsolidator();
+    expect(c.process(snap("I am talking", "Alice"))).toBeNull();
+    // Avatar/name not rendered on this snapshot → speakerHint null, text growing.
+    expect(c.process(snap("I am talking now", null))).toBeNull();
+    // Name renders again; still the same turn.
+    expect(c.process(snap("I am talking now for real", "Alice"))).toBeNull();
+    expect(c.flush()).toEqual({ speaker: "Alice", text: "I am talking now for real" });
+  });
+
+  it("keeps the speaker name once it renders after a null-first snapshot", () => {
+    const c = new CaptionConsolidator();
+    expect(c.process(snap("Starting to speak", null))).toBeNull();
+    expect(c.process(snap("Starting to speak clearly", "Carol"))).toBeNull();
+    expect(c.flush()).toEqual({ speaker: "Carol", text: "Starting to speak clearly" });
+  });
+
+  it("treats an in-place trailing-word correction as the same turn (bug 10)", () => {
+    const c = new CaptionConsolidator();
+    expect(c.process(snap("hello there world", "Alice"))).toBeNull();
+    // Meet revises the last word in place: "world" -> "word" (non-prefix).
+    expect(c.process(snap("hello there word", "Alice"))).toBeNull();
+    const line = c.flush();
+    expect(line?.speaker).toBe("Alice");
+    // Exactly one line, corrected — not two duplicated/overlapping lines.
+    expect(line?.text).toBe("hello there word");
+  });
+
+  it("splits genuinely different short utterances by the same speaker", () => {
+    const c = new CaptionConsolidator();
+    c.process(snap("hello", "Alice"));
+    const done = c.process(snap("goodbye", "Alice"));
+    expect(done).toEqual({ speaker: "Alice", text: "hello" });
+  });
+
+  it("flush returns null and resets when no turn is in progress", () => {
+    const c = new CaptionConsolidator();
+    expect(c.flush()).toBeNull();
+    c.process(snap("Something", "Alice"));
+    c.reset();
+    expect(c.flush()).toBeNull();
   });
 });
