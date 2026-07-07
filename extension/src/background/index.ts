@@ -7,6 +7,7 @@ import {
   sendParticipants as gmeetSendParticipants,
   endSession as gmeetEndSession,
   pauseSession as gmeetPauseSession,
+  checkGmeetHealth,
 } from "../shared/gmeetClient.js";
 import type { ExtensionMessage, SettingsAndSessionResponse } from "../shared/messages.js";
 import type { CurrentMeetingSnapshot, RecordingReadiness } from "../shared/recordingsTypes.js";
@@ -190,10 +191,14 @@ async function ensureDefaultSettingsPersisted(): Promise<void> {
   }
 }
 
-async function refreshServiceHealth(ensureTray = false): Promise<void> {
-  const health = await serviceClient.checkHealth({ ensureTray });
+async function refreshServiceHealth(_ensureTray = false): Promise<void> {
+  // Meetily-GM: health is the meetily desktop app's HTTP gmeet ingest server,
+  // NOT the retired Native Messaging host. (The old native host is uninstalled,
+  // so serviceClient.checkHealth would always report "unavailable" and block
+  // recording.) "connected" is the state the record gate requires.
+  const health = await checkGmeetHealth();
   await patchSessionState({
-    localServiceStatus: health.status,
+    localServiceStatus: health.ok ? "connected" : "unavailable",
   });
 }
 

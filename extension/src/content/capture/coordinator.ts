@@ -162,19 +162,8 @@ export class MeetCaptureCoordinator {
     this.starting = true;
     try {
       const settings = await getSettings();
-      if (!settings.rawStorageRoot.trim() || !settings.finalOutputRoot.trim()) {
-        await patchSessionState({
-          lastError: "Configure raw and final storage roots in the Options page.",
-          isCaptureRunning: false,
-        });
-        await chrome.runtime
-          .sendMessage({
-            type: "CAPTURE_STATE_CHANGED",
-            payload: { isCaptureRunning: false },
-          } satisfies ExtensionMessage)
-          .catch(() => undefined);
-        return;
-      }
+      // Meetily-GM: no raw/final storage roots needed — meetily owns storage.
+      // (The legacy meeting-capture gate checked those here.)
 
       await chrome.runtime.sendMessage({ type: "REQUEST_SERVICE_HEALTH", payload: { ensureTray: true } });
       const healthSession = await getSessionState();
