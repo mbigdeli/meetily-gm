@@ -67,6 +67,14 @@ impl DatabaseManager {
             .to_string_lossy()
             .to_string();
 
+        // One-time migration: the Miting identifier rename moved this dir, so
+        // pull the meetings DB from the previous identifier's dir if present.
+        crate::database::legacy_migrate::migrate_meetings_db(
+            &app_data_dir,
+            Path::new(&tauri_db_path),
+            Path::new(&backend_db_path),
+        );
+
         // WAL file paths for defensive cleanup
         let wal_path = app_data_dir.join("meeting_minutes.sqlite-wal");
         let shm_path = app_data_dir.join("meeting_minutes.sqlite-shm");

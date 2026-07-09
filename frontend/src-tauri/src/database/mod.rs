@@ -1,5 +1,6 @@
 pub mod backup;
 pub mod commands;
+pub mod legacy_migrate;
 pub mod manager;
 pub mod models;
 pub mod repositories;

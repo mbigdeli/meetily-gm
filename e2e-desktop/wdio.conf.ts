@@ -12,7 +12,7 @@ const bin = path.resolve(
   __dirname,
   "..",
   "frontend/src-tauri/target/debug",
-  isWin ? "meetily.exe" : "meetily",
+  isWin ? "Miting.exe" : "Miting",
 );
 
 export const config: WebdriverIO.Config = {

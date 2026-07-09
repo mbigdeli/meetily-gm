@@ -4,6 +4,24 @@
 
 ---
 
+## Implementation status (M2)
+
+**Done:** `tauri.conf.json` — `productName` `meetily`→**`Miting`**, `identifier`
+`com.meetily.ai`→**`li.bigde.miting`**, window title→`Miting`. Data-dir move
+handled by a **one-time auto-migration** (chosen over a fresh start so existing
+meetings survive): `database/legacy_migrate.rs` copies `meeting_minutes.sqlite`
+from the old identifier's sibling dir on first launch when the new dir is empty.
+Whisper **models are not migrated** (large + re-downloadable — copy `models/` by
+hand or re-download). Desktop e2e binary name updated to `Miting.exe`.
+
+**Human-verify (I can't launch the app):** on the first real run under the new
+identifier, confirm in the logs that `migrated meetings DB from …` fires and the
+meetings list is intact.
+
+**Still pending (cosmetic UI strings; need the app to verify):** `About.tsx`
+(Zackriya links/text), onboarding strings, `AnalyticsConsentSwitch` privacy URL,
+README/CONTRIBUTING, icons — the §2.2–2.4 inventory below.
+
 ## 1. Name decision record
 
 **Chosen name: Miting** (user decision, final).
