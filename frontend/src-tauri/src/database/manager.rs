@@ -32,7 +32,12 @@ impl DatabaseManager {
 
         let pool = SqlitePool::connect(tauri_db_path).await?;
 
-        sqlx::migrate!("./migrations").run(&pool).await?;
+        // Snapshot the existing DB before applying any pending forward-only
+        // migration (safety net; see database::backup).
+        let migrator = sqlx::migrate!("./migrations");
+        let embedded_max = migrator.iter().map(|m| m.version).max().unwrap_or(0);
+        crate::database::backup::backup_if_pending(&pool, tauri_db_path, embedded_max).await;
+        migrator.run(&pool).await?;
 
         Ok(DatabaseManager { pool })
     }
