@@ -7,4 +7,6 @@
 //! these format converters (follow-up).
 
 pub mod adf;
+pub mod jira;
 pub mod mrkdwn;
+pub mod slack;
