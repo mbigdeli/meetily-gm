@@ -39,4 +39,13 @@ async fn meetings_library_columns_present() {
     let cols = columns(&pool, "meetings").await;
     assert!(cols.contains(&"starred".to_string()), "missing starred: {cols:?}");
     assert!(cols.contains(&"duration_sec".to_string()), "missing duration_sec: {cols:?}");
+    assert!(cols.contains(&"template_id".to_string()), "missing template_id: {cols:?}");
+}
+
+#[tokio::test]
+async fn meeting_templates_table_present() {
+    let pool = fresh_migrated_pool().await;
+    let cols = columns(&pool, "meeting_templates").await;
+    assert!(cols.contains(&"prompt_body".to_string()), "missing prompt_body: {cols:?}");
+    assert!(cols.contains(&"is_default".to_string()), "missing is_default: {cols:?}");
 }
