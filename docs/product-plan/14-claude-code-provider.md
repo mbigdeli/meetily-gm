@@ -4,6 +4,22 @@
 
 ---
 
+## Implementation status (M1)
+
+**Shipped:** the execution path — `frontend/src-tauri/src/claude_code/` (`mod.rs`,
+`process.rs`, `resolve.rs`, `exec.rs`; each ≤120 lines) mirroring `codex/`, plus
+the `ClaudeCodeCli` provider variant, parse (`claude-code`/`claude-cli`),
+dispatch, and display name in `summary/llm_client.rs`, and `pub mod claude_code;`
+in `lib.rs`. Binary resolution (env override `MITING_CLAUDE_EXE`, Windows
+shim guard), `claude --print` over stdin, timeout + cancellation, and
+logged-out detection are done and unit-tested (mock-`.cmd` exec test).
+
+**Deferred to a follow-up** (needs verification against a real `claude` binary —
+doc §4.3, §4.2): the sign-in **status/login Tauri commands** and the Settings
+provider **card/UI**, and the exact tool-disable flag. A plain `--print` prompt
+invokes no tools; auth failures surface as `NotLoggedIn` from stderr. Selecting
+the provider works today via config value `claude-code`.
+
 ## 1. Goal
 
 Users who pay for **Claude Pro/Max** (but not ChatGPT/Codex) get the same "free" summarization experience Codex users already have — driven by their existing Claude subscription, **no Anthropic API key, no per-token billing**. This is strictly for **the signed-in user's own use** (same posture as the Codex provider), not a shared/hosted credential.

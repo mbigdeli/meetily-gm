@@ -320,14 +320,15 @@ impl SummaryService {
             }
         };
 
-        // Validate and setup api_key, Flexible for Ollama, BuiltInAI, CustomOpenAI, and CodexCli
+        // Validate and setup api_key, Flexible for Ollama, BuiltInAI, CustomOpenAI, CodexCli, ClaudeCodeCli
         let api_key = if provider == LLMProvider::Ollama
             || provider == LLMProvider::BuiltInAI
             || provider == LLMProvider::CustomOpenAI
             || provider == LLMProvider::CodexCli
+            || provider == LLMProvider::ClaudeCodeCli
         {
             // These providers don't require API keys from the standard database column
-            // (Codex CLI authenticates via the user's ChatGPT login — no key exists at all)
+            // (Codex/Claude Code CLIs authenticate via the user's subscription login — no key exists at all)
             String::new()
         } else {
             match SettingsRepository::get_api_key(&pool, &model_provider).await {

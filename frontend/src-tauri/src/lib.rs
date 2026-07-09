@@ -39,6 +39,7 @@ pub mod analytics;
 pub mod api;
 pub mod audio;
 pub mod activity;
+pub mod claude_code;
 pub mod codex;
 pub mod config;
 pub mod gmeet_ingest;
