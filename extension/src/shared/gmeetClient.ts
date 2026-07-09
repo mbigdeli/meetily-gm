@@ -95,22 +95,15 @@ export async function checkGmeetHealth(): Promise<GmeetResult> {
 }
 
 // --- session continuity across pause/resume -------------------------------
-// The extension owns the gmeet_session_id and keeps it stable when the same
-// Meet is rejoined within the grace window, so captions + diarization stay
-// unified. Keyed by meeting_code; `ts` tracks last activity (start/pause).
+// Meetily — not the extension — is the single source of truth for whether a
+// just-left Meet can be resumed into the same session. Before starting we ask
+// GET /gmeet/session/resume-check?meeting_code=X; if meetily reports a paused,
+// not-yet-finalized session for this code we reuse its id (resume), otherwise
+// we mint a fresh one. Meetily clears resumability when it finalizes (grace
+// expiry / "Stop & summarize now") or resumes, so there is no independent
+// extension timer to drift out of sync with the frontend grace countdown —
+// which was the root of the resume/session-id desync bug family.
 
-const SESSIONS_KEY = "mcs_gmeet_sessions";
-const RESUME_WINDOW_MS = 5 * 60 * 1000;
-
-type SessionMap = Record<string, { id: string; ts: number }>;
-
-async function loadSessions(): Promise<SessionMap> {
-  const s = await chrome.storage.local.get(SESSIONS_KEY);
-  return (s[SESSIONS_KEY] as SessionMap) || {};
-}
-async function saveSessions(m: SessionMap): Promise<void> {
-  await chrome.storage.local.set({ [SESSIONS_KEY]: m });
-}
 function genId(code: string): string {
   const rand =
     typeof crypto !== "undefined" && crypto.randomUUID
@@ -118,47 +111,55 @@ function genId(code: string): string {
       : Math.random().toString(16).slice(2);
   return `gmeet-${code}-${rand}`;
 }
-/** Refresh last-activity ts for the session whose id matches (grace counts from here). */
-async function touchSessionById(id: string): Promise<void> {
-  const m = await loadSessions();
-  for (const code of Object.keys(m)) {
-    if (m[code].id === id) {
-      m[code].ts = Date.now();
-      await saveSessions(m);
-      return;
-    }
-  }
+
+interface ResumeCheck {
+  resumable: boolean;
+  session_id?: string | null;
 }
-/** Forget the session (after finalize) so the next join of this Meet is fresh. */
-async function clearSessionById(id: string): Promise<void> {
-  const m = await loadSessions();
-  let changed = false;
-  for (const code of Object.keys(m)) {
-    if (m[code].id === id) {
-      delete m[code];
-      changed = true;
-    }
+
+/**
+ * Ask meetily whether this meeting_code has a resumable paused session. On any
+ * failure (meetily unreachable, unauthorized, bad response) we treat it as not
+ * resumable so a fresh session is started rather than blocking the recording.
+ */
+async function resumeCheck(pairing: GmeetPairing, code: string): Promise<ResumeCheck> {
+  try {
+    const url = `${pairing.baseUrl}/gmeet/session/resume-check?meeting_code=${encodeURIComponent(code)}`;
+    const resp = await fetch(url, {
+      headers: { Authorization: `Bearer ${pairing.token}` },
+    });
+    if (!resp.ok) return { resumable: false };
+    const data = (await resp.json()) as ResumeCheck;
+    return {
+      resumable: data.resumable === true,
+      session_id: typeof data.session_id === "string" ? data.session_id : null,
+    };
+  } catch {
+    return { resumable: false };
   }
-  if (changed) await saveSessions(m);
 }
 
 export async function startSession(
   body: SessionStartRequest,
 ): Promise<GmeetResult<{ meeting_id: string; resumed: boolean }>> {
+  const pairing = await getGmeetPairing();
+  if (!pairing) {
+    return { ok: false, error: "not_paired" };
+  }
   const code = body.meeting_code || "adhoc";
-  const sessions = await loadSessions();
-  const prev = sessions[code];
+  const check = await resumeCheck(pairing, code);
   let sessionId: string;
   let resume = false;
-  if (prev && Date.now() - prev.ts < RESUME_WINDOW_MS) {
-    sessionId = prev.id;
+  if (check.resumable && check.session_id) {
+    sessionId = check.session_id;
     resume = true;
   } else {
     sessionId = genId(code);
   }
-  sessions[code] = { id: sessionId, ts: Date.now() };
-  await saveSessions(sessions);
 
+  // Meetily validates `resume` authoritatively and returns the id it actually
+  // used (in `meeting_id`), which may differ if the session was finalized in
+  // the meantime — the caller adopts that returned id.
   return post("/gmeet/session/start", {
     meeting_code: body.meeting_code,
     title: body.meeting_title,
@@ -196,13 +197,20 @@ export async function sendParticipants(
   });
 }
 
-/** Meet closed/paused: pause meetily + start its grace window (resume-able). */
+/**
+ * Meet closed/paused: pause meetily, which marks the session resumable and
+ * starts its grace window. Resumability is tracked by meetily (keyed by meeting
+ * code), so nothing is stored here.
+ */
 export async function pauseSession(meetingId: string): Promise<GmeetResult> {
-  await touchSessionById(meetingId); // grace window counts from the pause
   return post("/gmeet/session/pause", { meeting_id: meetingId });
 }
 
+/**
+ * Finalize a session over the wire. Meetily clears the session's resumability
+ * on this path too (in addition to its own frontend finalize), so the next
+ * join of this Meet starts fresh.
+ */
 export async function endSession(meetingId: string): Promise<GmeetResult> {
-  await clearSessionById(meetingId); // finalized → next join of this Meet is fresh
   return post("/gmeet/session/end", { meeting_id: meetingId });
 }

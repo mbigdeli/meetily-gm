@@ -62,6 +62,21 @@ export function GmeetGraceController({ showOnboarding }: { showOnboarding: boole
       console.warn('[gmeet] stop_recording failed (may already be stopped):', err);
     }
 
+    // Tell the ingest server this session is finalized so it stops being a
+    // resume candidate — a rejoin of the same Meet now starts a fresh session
+    // instead of reusing this (summarized) id. Meetily is the single source of
+    // truth for resumability; the companion extension only asks. Read (don't
+    // remove) gmeet_session_id — the post-processing flow still needs it to run
+    // diarization on the finalized transcript.
+    try {
+      const sessionId = sessionStorage.getItem('gmeet_session_id');
+      if (sessionId) {
+        await invoke('gmeet_clear_resumable', { sessionId });
+      }
+    } catch (err) {
+      console.warn('[gmeet] gmeet_clear_resumable failed:', err);
+    }
+
     // 2) Drive post-processing (DB save → diarization → summary) via the
     //    always-mounted RecordingPostProcessingProvider, which listens for
     //    'recording-stop-complete'. Route-independent, unlike

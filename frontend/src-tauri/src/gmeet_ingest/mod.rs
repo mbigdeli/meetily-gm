@@ -12,11 +12,12 @@
 //! on every data endpoint. The token is generated once, stored under the app
 //! data dir, and shown in Settings for one-time pairing with the extension.
 
+use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use axum::{
-    extract::State,
+    extract::{Query, State},
     http::{HeaderMap, StatusCode},
     routing::{get, post},
     Json, Router,
@@ -45,6 +46,75 @@ impl<R: Runtime> Clone for IngestState<R> {
         Self {
             app: self.app.clone(),
             token: self.token.clone(),
+        }
+    }
+}
+
+// ---- resumability (single source of truth) -------------------------------
+//
+// Meetily — not the extension — owns whether a just-left Google Meet can still
+// be resumed into the same session. A session becomes resumable when it pauses
+// (Meet closed within the grace window) and stops being resumable the moment it
+// is started/resumed again or finalized ("Stop & summarize now" or grace
+// expiry). The extension asks via GET /gmeet/session/resume-check before it
+// starts, so there is no independent extension timer to drift out of sync with
+// the frontend grace countdown (the desync-bug family this replaces).
+//
+// Shared between the ingest server handlers and the `gmeet_clear_resumable`
+// Tauri command through Tauri managed state.
+
+/// Resumability state, keyed by Google Meet code.
+#[derive(Default)]
+pub struct GmeetResumeState {
+    inner: Mutex<ResumeInner>,
+}
+
+#[derive(Default)]
+struct ResumeInner {
+    /// meeting_code -> resumable session_id (present only while paused).
+    resumable: HashMap<String, String>,
+    /// session_id -> meeting_code (so a finalize-by-session-id can find the code).
+    session_code: HashMap<String, String>,
+}
+
+impl GmeetResumeState {
+    /// A session started (fresh) or resumed: remember its code, and it is no
+    /// longer a pending-resume candidate while it is actively recording.
+    fn on_start(&self, session_id: &str, meeting_code: &str) {
+        let mut g = self.inner.lock().expect("gmeet resume state poisoned");
+        g.session_code
+            .insert(session_id.to_string(), meeting_code.to_string());
+        g.resumable.remove(meeting_code);
+    }
+
+    /// A session paused: it can be resumed by the same meeting code until it is
+    /// resumed or finalized.
+    fn on_pause(&self, session_id: &str) {
+        let mut g = self.inner.lock().expect("gmeet resume state poisoned");
+        if let Some(code) = g.session_code.get(session_id).cloned() {
+            g.resumable.insert(code, session_id.to_string());
+        }
+    }
+
+    /// The resumable session id for a meeting code, if any.
+    fn resume_check(&self, meeting_code: &str) -> Option<String> {
+        self.inner
+            .lock()
+            .expect("gmeet resume state poisoned")
+            .resumable
+            .get(meeting_code)
+            .cloned()
+    }
+
+    /// A session was finalized: forget its code mapping and drop its resumable
+    /// entry — but only if that entry still points at *this* session (a newer
+    /// session for the same code may have replaced it).
+    fn clear(&self, session_id: &str) {
+        let mut g = self.inner.lock().expect("gmeet resume state poisoned");
+        if let Some(code) = g.session_code.remove(session_id) {
+            if g.resumable.get(&code).map(String::as_str) == Some(session_id) {
+                g.resumable.remove(&code);
+            }
         }
     }
 }
@@ -151,6 +221,17 @@ struct SessionPauseReq {
     meeting_id: String,
 }
 
+#[derive(Deserialize)]
+struct ResumeCheckQuery {
+    meeting_code: Option<String>,
+}
+
+#[derive(Serialize)]
+struct ResumeCheckResp {
+    resumable: bool,
+    session_id: Option<String>,
+}
+
 // ---- handlers ------------------------------------------------------------
 
 async fn health() -> Json<Value> {
@@ -185,14 +266,41 @@ async fn session_start<R: Runtime>(
         .filter(|t| !t.trim().is_empty())
         .unwrap_or_else(|| "Google Meet".to_string());
 
-    // The extension owns the gmeet_session_id and keeps it stable across
-    // pause/resume (same Meet rejoined within the grace window), so captions +
-    // diarization stay unified. Mint one only if the extension didn't provide it.
     let code = req.meeting_code.as_deref().unwrap_or("adhoc");
-    let gmeet_session_id = req
+    let requested_id = req
         .session_id
-        .filter(|s| !s.trim().is_empty())
-        .unwrap_or_else(|| format!("gmeet-{code}-{}", uuid::Uuid::new_v4()));
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+
+    // Meetily is authoritative for resumability. Honor `resume` ONLY if the id
+    // the extension wants to resume is still the one we hold as resumable for
+    // this code — it may have been finalized (grace expiry / "Stop & summarize
+    // now") between the extension's resume-check and this start POST. Otherwise
+    // start fresh under a brand-new id, never reusing a possibly-finalized id
+    // (which would append a new meeting's captions to an already-summarized
+    // session — the contamination bug this guards against).
+    let resume_state = st.app.try_state::<GmeetResumeState>();
+    let resumable_id = resume_state.as_ref().and_then(|rs| rs.resume_check(code));
+    let (gmeet_session_id, resume) = match (req.resume, requested_id) {
+        // Resume honored: the id the extension wants is still the resumable one.
+        (true, Some(req_id)) if resumable_id.as_deref() == Some(req_id) => {
+            (req_id.to_string(), true)
+        }
+        // Resume requested but stale (finalized since the extension checked) →
+        // mint a fresh id; never reuse a possibly-finalized id.
+        (true, _) => (format!("gmeet-{code}-{}", uuid::Uuid::new_v4()), false),
+        // Fresh start with the extension's own id.
+        (false, Some(req_id)) => (req_id.to_string(), false),
+        // Fresh start, minting an id (extension omitted one).
+        (false, None) => (format!("gmeet-{code}-{}", uuid::Uuid::new_v4()), false),
+    };
+
+    // Record the (session_id -> code) mapping and drop any resumable entry for
+    // this code: while actively recording it is not a pending-resume candidate.
+    if let Some(rs) = resume_state.as_ref() {
+        rs.on_start(&gmeet_session_id, code);
+    }
 
     // Tell the meetily frontend to start (or resume) its live recording.
     let _ = st.app.emit(
@@ -201,19 +309,20 @@ async fn session_start<R: Runtime>(
             "gmeet_session_id": gmeet_session_id,
             "title": title,
             "meeting_code": req.meeting_code,
-            "resume": req.resume,
+            "resume": resume,
         }),
     );
 
     log::info!(
-        "gmeet ingest: session_start -> {} (resume={}, participants={})",
+        "gmeet ingest: session_start -> {} (resume={}, requested_resume={}, participants={})",
         gmeet_session_id,
+        resume,
         req.resume,
         req.participants.len()
     );
     Ok(Json(SessionStartResp {
         meeting_id: gmeet_session_id,
-        resumed: req.resume,
+        resumed: resume,
     }))
 }
 
@@ -225,7 +334,12 @@ async fn session_pause<R: Runtime>(
     if !authed(&headers, &st) {
         return Err(StatusCode::UNAUTHORIZED);
     }
-    // Meet closed/paused: pause meetily's recording and start the grace window.
+    // Meet closed/paused: the session becomes resumable (by its meeting code)
+    // until it is resumed or finalized.
+    if let Some(rs) = st.app.try_state::<GmeetResumeState>() {
+        rs.on_pause(&req.meeting_id);
+    }
+    // Pause meetily's recording and start the grace window.
     let _ = st.app.emit(
         "gmeet-pause-recording",
         json!({ "gmeet_session_id": req.meeting_id }),
@@ -292,6 +406,12 @@ async fn session_end<R: Runtime>(
     if !authed(&headers, &st) {
         return Err(StatusCode::UNAUTHORIZED);
     }
+    // Finalized → no longer resumable. (The frontend clears via
+    // gmeet_clear_resumable on its own finalize path; this covers a session_end
+    // that arrives over the wire.)
+    if let Some(rs) = st.app.try_state::<GmeetResumeState>() {
+        rs.clear(&req.meeting_id);
+    }
     // Tell the frontend to stop recording + save; it then invokes
     // gmeet_finalize_diarization once the real meeting_id exists.
     let _ = st.app.emit(
@@ -303,6 +423,28 @@ async fn session_end<R: Runtime>(
         req.meeting_id
     );
     Ok(Json(json!({ "stopping": true })))
+}
+
+/// GET /gmeet/session/resume-check?meeting_code=X — the extension asks this
+/// before starting so it can reuse a paused session's id (resume) instead of
+/// running its own timer. Meetily is the single source of truth.
+async fn resume_check<R: Runtime>(
+    State(st): State<IngestState<R>>,
+    headers: HeaderMap,
+    Query(q): Query<ResumeCheckQuery>,
+) -> Result<Json<ResumeCheckResp>, StatusCode> {
+    if !authed(&headers, &st) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let code = q.meeting_code.as_deref().unwrap_or("adhoc");
+    let session_id = st
+        .app
+        .try_state::<GmeetResumeState>()
+        .and_then(|rs| rs.resume_check(code));
+    Ok(Json(ResumeCheckResp {
+        resumable: session_id.is_some(),
+        session_id,
+    }))
 }
 
 // ---- server bootstrap ----------------------------------------------------
@@ -323,6 +465,16 @@ pub fn gmeet_pairing_info<R: Runtime>(app: AppHandle<R>) -> GmeetPairingInfo {
     }
 }
 
+/// Tauri command: the frontend calls this when it finalizes a gmeet recording
+/// (grace expiry or "Stop & summarize now") so the session stops being a
+/// resume candidate. Idempotent; a no-op if the session was never tracked.
+#[tauri::command]
+pub fn gmeet_clear_resumable<R: Runtime>(app: AppHandle<R>, session_id: String) {
+    if let Some(rs) = app.try_state::<GmeetResumeState>() {
+        rs.clear(&session_id);
+    }
+}
+
 /// Build the router (exposed for tests).
 fn router<R: Runtime>(state: IngestState<R>) -> Router {
     Router::new()
@@ -330,6 +482,7 @@ fn router<R: Runtime>(state: IngestState<R>) -> Router {
         .route("/gmeet/session/start", post(session_start::<R>))
         .route("/gmeet/session/pause", post(session_pause::<R>))
         .route("/gmeet/session/end", post(session_end::<R>))
+        .route("/gmeet/session/resume-check", get(resume_check::<R>))
         .route("/gmeet/captions", post(captions::<R>))
         .route("/gmeet/participants", post(participants::<R>))
         .with_state(state)
@@ -367,5 +520,82 @@ mod tests {
         let t = generate_token();
         assert_eq!(t.len(), 64);
         assert!(t.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    // ---- GmeetResumeState: the resume/desync bug family --------------------
+
+    const CODE: &str = "abc-defg-hij";
+
+    #[test]
+    fn fresh_meeting_is_not_resumable() {
+        let s = GmeetResumeState::default();
+        s.on_start("sess-1", CODE);
+        // Started but never paused → nothing to resume.
+        assert_eq!(s.resume_check(CODE), None);
+    }
+
+    #[test]
+    fn pause_makes_session_resumable() {
+        let s = GmeetResumeState::default();
+        s.on_start("sess-1", CODE);
+        s.on_pause("sess-1");
+        assert_eq!(s.resume_check(CODE), Some("sess-1".to_string()));
+    }
+
+    #[test]
+    fn resume_clears_resumability_until_next_pause() {
+        let s = GmeetResumeState::default();
+        s.on_start("sess-1", CODE);
+        s.on_pause("sess-1");
+        // Rejoin resumes the same id → actively recording, not resumable.
+        s.on_start("sess-1", CODE);
+        assert_eq!(s.resume_check(CODE), None);
+    }
+
+    #[test]
+    fn finalize_clears_resumability() {
+        // "Stop & summarize now" (or grace expiry) → next join of this Meet is
+        // fresh, so the finalized session's id is never reused (no caption
+        // contamination).
+        let s = GmeetResumeState::default();
+        s.on_start("sess-1", CODE);
+        s.on_pause("sess-1");
+        s.clear("sess-1");
+        assert_eq!(s.resume_check(CODE), None);
+    }
+
+    #[test]
+    fn resumed_session_can_be_resumed_again() {
+        // Regression guard: clearing on resume (or dropping the session->code
+        // mapping too eagerly) would break a *second* resume of the same Meet.
+        let s = GmeetResumeState::default();
+        s.on_start("sess-1", CODE);
+        s.on_pause("sess-1");
+        s.on_start("sess-1", CODE); // resume #1
+        s.on_pause("sess-1"); // paused again
+        assert_eq!(s.resume_check(CODE), Some("sess-1".to_string()));
+    }
+
+    #[test]
+    fn clear_only_drops_entry_still_pointing_at_that_session() {
+        // A newer session replaced the resumable slot for this code; a late
+        // finalize of the OLD session must not wipe the new one's resumability.
+        let s = GmeetResumeState::default();
+        s.on_start("old", CODE);
+        s.on_pause("old"); // resumable[CODE] = old
+        s.on_start("new", CODE); // resumable[CODE] cleared, session_code[new]=CODE
+        s.on_pause("new"); // resumable[CODE] = new
+        s.clear("old"); // stale finalize of old
+        assert_eq!(s.resume_check(CODE), Some("new".to_string()));
+    }
+
+    #[test]
+    fn pause_of_untracked_session_is_noop() {
+        // A pause for a session we never saw start (e.g. after a restart) must
+        // not invent a resumable entry keyed by a mystery code.
+        let s = GmeetResumeState::default();
+        s.on_pause("ghost");
+        assert_eq!(s.resume_check(CODE), None);
+        assert_eq!(s.resume_check("adhoc"), None);
     }
 }

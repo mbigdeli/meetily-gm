@@ -420,6 +420,7 @@ pub fn run() {
         )) as NotificationManagerState<tauri::Wry>)
         .manage(audio::init_system_audio_state())
         .manage(summary::summary_engine::ModelManagerState(Arc::new(tokio::sync::Mutex::new(None))))
+        .manage(gmeet_ingest::GmeetResumeState::default())
         .setup(|_app| {
             log::info!("Application setup complete");
 
@@ -687,6 +688,7 @@ pub fn run() {
             codex::commands::codex_logout,
             // Google Meet ingest (Meetily-GM)
             gmeet_ingest::gmeet_pairing_info,
+            gmeet_ingest::gmeet_clear_resumable,
             gmeet_ingest::diarize::gmeet_finalize_diarization,
             gmeet_ingest::diarize::api_get_diarized_segments,
             // Activity/status surface (Meetily-GM)
