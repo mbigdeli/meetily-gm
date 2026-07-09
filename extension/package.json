@@ -6,9 +6,11 @@
   "scripts": {
     "build": "vite build && vite build --config vite.content.meet.config.ts && vite build --config vite.content.capture.config.ts",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "e2e": "playwright test"
   },
   "devDependencies": {
+    "@playwright/test": "^1.50.0",
     "@types/chrome": "^0.0.280",
     "@types/node": "^22.10.2",
     "@types/react": "^19.2.14",

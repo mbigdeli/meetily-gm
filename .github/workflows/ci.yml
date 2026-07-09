@@ -48,6 +48,10 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      # Extension e2e: build the unpacked extension, then load it in Playwright.
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run e2e
 
   frontend:
     name: Frontend (typecheck · lint)
