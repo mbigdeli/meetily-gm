@@ -41,6 +41,7 @@ pub mod audio;
 pub mod activity;
 pub mod claude_code;
 pub mod codex;
+pub mod connectors;
 pub mod config;
 pub mod gmeet_ingest;
 pub mod console_utils;
