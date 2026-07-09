@@ -4,6 +4,22 @@
 
 ---
 
+## 0. Revision 2 — user feedback (authoritative; overrides anything below it)
+
+Live prototype: **[mockups/](mockups/)** (single-file interactive build; open in browser).
+
+Guiding rule the user set: **minimal always.** Don't put lots of options/info on every screen — show the most important thing and the primary action, nothing more.
+
+1. **Home is minimal** (the old redesign home was too busy). Just: one big Record button, an optional title field, and a single quiet line for template/language/model with an "options" link. No hint cards, no recent list crowding the page. Closer to the original Meetily home the user liked.
+2. **Meetings page:** checkbox column for multi-select; **★ is a separate favourite marker**, not the select control. **Removed:** Status column, "Sent to" column, and Priority (dropped entirely). Kept minimal (see doc 09).
+3. **No "New recording" button repeated on pages.** Record lives only in the left nav. (If a global shortcut is ever wanted, a single bottom-right circle — but the user prefers not having it everywhere.)
+4. **Meeting detail is NOT a nav item** — it opens when a meeting row is clicked. **One column** (no two-column split): Summary → Suggested tasks (embedded right under the summary) → Participants (collapsible simple list) → Transcript (collapsed by default).
+5. **"Send to Slack" was confusing** → replaced by a **Share ▾** menu that names exactly what happens: "Post recap (summary + action items) to Slack #channel", "Publish page to Notion", "Export (.md/.pdf)", "Copy summary". The recap = the summary + decisions + action items.
+6. **Integrations = a vertical list of rows**, not rectangle cards; each Connect opens a real step-by-step modal (see doc 10 §7).
+7. **The MCP block is renamed "Ask AI about your meetings"** with plain-language copy + example questions (doc 10 §6).
+8. **Prompt Studio → term is "template"** (matches main app), no tag chips (two plain groups: Default / Your), Persian names render LTR in the list, screen de-crowded (doc 06).
+9. **Persian font Vazirmatn** is embedded for all Persian (`.fa`) text — bundled locally in the app (doc 03 §3.2), demonstrated in the prototype via inlined woff2.
+
 ## 1. Design critique of the current app
 
 ### Overall impression

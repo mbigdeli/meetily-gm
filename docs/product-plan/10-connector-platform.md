@@ -66,21 +66,45 @@ Feeds: "Sent-to" badges on meetings page (doc 09), duplicate-send warnings (07/0
 | Asana / ClickUp | PAT | REST create task | 1–2 d each | demand-driven |
 | Monday / Google Calendar | — | — | defer | column-JSON fiddliness / OAuth verification burden |
 
-Each lands as one `TaskSink`/`MessageSink` impl + a settings card — no new UX invention.
+Each lands as one `TaskSink`/`MessageSink` impl + a settings **row** (see §7) — no new UX invention.
 
-## 6. Local MCP server (Phase 3 flagship)
+### 5.1 "Are you sure you can connect to Notion / Linear / GitHub / Teams?" — yes (feasibility confirmed)
 
-**Pitch:** "Ask Claude about your meetings — locally, free." Granola gates MCP behind Business ($14/u/mo); Fireflies/Otter/Fellow run cloud servers. Miting ships a **local stdio MCP server** over its own SQLite — content never leaves the machine.
+All four are **standard, documented integrations** a desktop app makes with the user's own credentials — no partnership or app-store approval needed:
 
-- Binary: `miting-mcp` (small sidecar, same repo, `rmcp` server API), read-only DB access.
-- Tools: `search_meetings(query, date_range, starred)`, `get_meeting(id)` (metadata+participants), `get_transcript(id, diarized=true)`, `get_summary(id)`, `get_action_items(range)` (from `meeting_task_suggestions` + summaries), `list_meeting_styles()`.
-- Setup UX: Settings → Integrations → "AI assistants (MCP)" — one-click writes the config snippet for Claude Desktop / Claude Code / Cursor (`claude mcp add miting -- miting-mcp --db <path>`), copy button per client.
-- Safety: read-only; no tool mutates the DB v1. Document that any MCP client the user connects can read all meeting content (their machine, their choice).
-- Marketing: own launch post (doc 12 §5) — demo "Claude, what did we decide about pricing last week?"
+| Tool | How Miting connects | Confidence |
+|---|---|---|
+| **Notion** | User creates a free internal integration at notion.so/my-integrations (~3 min), pastes the token, shares the target database with it. Miting calls `POST https://api.notion.com/v1/pages`. | **High** — public API |
+| **Linear** | User generates a personal API key (Settings → Security & access), scopable to issue-create. Miting calls GraphQL `issueCreate` at `api.linear.app/graphql`, markdown-native. | **High** — trivial API |
+| **GitHub Issues** | OAuth **device flow** (Miting ships only a public client_id, no secret — the ideal desktop pattern: user sees a code, approves in browser) or a fine-grained PAT. Then `POST /repos/{owner}/{repo}/issues`. | **High** — device flow built for this |
+| **MS Teams** | User creates a "post to a channel when a webhook request is received" Workflow in Teams, pastes the URL; Miting POSTs an Adaptive Card. (Old O365 connector webhooks retired 2026-05 → Workflows is the current path.) | **High** — setup is a few clicks in Teams |
+
+The honest caveat is **setup friction**, not feasibility: each needs the user to create a token/webhook once. None require Miting to be an approved app or run a cloud backend. Notion's one gotcha (must *share the database* with the integration) gets an explicit onboarding step. The in-app **Connect** button for each opens a short step-by-step modal (shown working in the prototype).
+
+## 6. "Ask AI about your meetings" — the local MCP server, in plain language
+
+**What it is, said plainly (this is how the UI must describe it — the abstract "MCP" label confused the user):**
+
+> Miting can let an AI assistant you already use — **Claude, ChatGPT, or Cursor** — *read your meetings on this computer* so you can just ask it things in plain language:
+> - *"What did we decide about pricing in the last two syncs?"*
+> - *"List every open action item assigned to me this week."*
+> - *"Summarise everything the Northwind customer asked for."*
+>
+> Nothing is uploaded — the assistant reads a local database on your machine. Competitors charge $14–19/user/mo for this; in Miting it's free.
+
+**MCP** ("Model Context Protocol") is just the plumbing standard those assistants use to read outside data. The user never types "MCP" — they click **"Connect Claude"** and Miting hands them a one-line setup snippet to paste into their assistant once.
+
+- Binary: `miting-mcp` (small sidecar, same repo, `rmcp` server API), **read-only** DB access.
+- Tools it exposes: `search_meetings(query, date_range, starred)`, `get_meeting(id)` (metadata+participants), `get_transcript(id, diarized=true)`, `get_summary(id)`, `get_action_items(range)`, `list_templates()`.
+- Setup UX: Integrations → **"Ask AI about your meetings"** block with example questions (above) + a copy-per-client button (Claude / ChatGPT / Cursor) that writes `claude mcp add miting -- miting-mcp --db <path>`.
+- Safety: read-only; no tool mutates the DB in v1. One clear sentence in-UI: "Any assistant you connect can read all your meeting notes on this device."
+- Marketing: own launch post (doc 12 §5).
 
 ## 7. Settings — Integrations hub
 
-New Settings tab (replaces scattered Beta toggles): grid of connector cards (logo, status dot, Connect/Manage), delivery-log viewer (last 50, filter by meeting), MCP section per §6. Mockup: [mockups/integrations.html](mockups/integrations.html).
+New Settings tab (replaces scattered Beta toggles). **A vertical list of rows, not a grid of cards** (user directive): each row = logo · name · one-line description · status dot · Connect/Manage button. Below the list: the "Ask AI about your meetings" block (§6) and a delivery-log viewer (last 50, filter by meeting).
+
+**Connect flow (must work end-to-end):** each connector's **Connect** opens a small modal with its 2–3 real setup steps + the single field it needs (token / device-code / webhook URL) + **Test & save** (verifies before storing to keychain). Connected rows show account/target + Manage/Disconnect. Mockup: [mockups/integrations.html](mockups/integrations.html) (rows + working connect modals + the plain-language AI block).
 
 ## 8. Acceptance criteria
 

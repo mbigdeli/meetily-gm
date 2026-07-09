@@ -97,8 +97,9 @@ The fork already contains substantial work beyond upstream Meetily:
 | Prompt Studio (meeting styles, editable prompts, `{{transcript}}` contract) | [06-prompt-studio.md](06-prompt-studio.md) | 1 w |
 | Claude Code CLI provider (subscription Claude, no API key) | [14-claude-code-provider.md](14-claude-code-provider.md) | 1–1.5 d |
 | Participants export | [04-participants-export.md](04-participants-export.md) | 2–3 d |
-| Persian completion (whisper lang, RTL rendering, fa summaries) | [03-persian-language.md](03-persian-language.md) | 1 w |
+| Persian completion (whisper lang, RTL rendering, fa summaries, Vazirmatn font) | [03-persian-language.md](03-persian-language.md) | 1 w |
 | Diarization hardening (provider-agnostic, rename UI) | [05-diarization-hardening.md](05-diarization-hardening.md) | 3–4 d |
+| Companion extension: self-install + auto-pairing (no API key) | [15-extension-distribution-and-pairing.md](15-extension-distribution-and-pairing.md) | 3–4 d |
 
 ### Phase 2 — Integrations (~3 weeks)
 
@@ -113,6 +114,7 @@ The fork already contains substantial work beyond upstream Meetily:
 | Work | Doc |
 |---|---|
 | Local MCP server (Claude/ChatGPT query your meetings) | [10-connector-platform.md](10-connector-platform.md) |
+| **AI-native spine**: embedding index, decision/commitment extraction with provenance, ask-your-meetings RAG, living decision log, continuity digest, model tiering | [16-ai-native-strategy.md](16-ai-native-strategy.md) |
 | Cross-meeting action tracker, decision log, weekly digest, ask-your-meetings | [11-feature-backlog.md](11-feature-backlog.md) |
 | Fast-follow connectors: Notion, Linear, GitHub, Teams | [10-connector-platform.md](10-connector-platform.md) |
 
@@ -141,7 +143,9 @@ See [12-open-source-launch.md](12-open-source-launch.md): README, landing page c
 | 12 | [Open-source launch & branding](12-open-source-launch.md) | publishing + self-branding goal |
 | 13 | [App redesign (UX/UI)](13-app-redesign.md) | #8 + overall UX request |
 | 14 | [Claude Code CLI provider](14-claude-code-provider.md) | subscription Claude summaries, no API key |
-| — | [mockups/](mockups/) | visual reference for 09 & 13 |
+| 15 | [Extension distribution & auto-pairing](15-extension-distribution-and-pairing.md) | install companion from the app (not Web Store first); no API key — auto-pair |
+| 16 | [AI-native strategy](16-ai-native-strategy.md) | make the whole system smarter via the connected LLM; local-first, provider-tiered |
+| — | [mockups/](mockups/) | visual reference for 09 & 13 (interactive) |
 | — | [index.html](index.html) | browsable overview |
 
 Codex connection (#1) is already implemented; it is documented as a flagship feature in §3 and marketed in doc 12.

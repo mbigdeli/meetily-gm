@@ -1,12 +1,19 @@
-# 06 — Prompt Studio (Meeting Styles)
+# 06 — Prompt Studio (Meeting Templates)
 
 > Phase 1 · Effort: ~1 week · Covers user request #5
 
 ---
 
+## Terminology & UI decisions (user, this round)
+
+- Call them **templates**, not "styles" — matches the term the rest of the app already uses (the summary view's **Template** button). Use "template" everywhere in code and UI.
+- **No tag chips** ("built-in" / "yours"). Instead the list has two plain section headers: **Default templates** (ship with Miting, editable, with "Reset to default") and **Your templates** (user-created). That conveys what "built-in" meant without a tag.
+- Persian template names render **LTR like the rest of the list** (don't right-align a single item — keep the list visually uniform); the *prompt body* and its output stay RTL where the content is Persian.
+- **Keep the screen minimal.** One editor, a compact variable row, a Preview and a Save — no token-estimate clutter, no crowding.
+
 ## 1. Goal
 
-A first-class **Prompt Studio** section in Settings where the user creates, edits, and manages **Meeting Styles** — named prompt templates that fully control what is sent to the LLM for summarization. Contract:
+A first-class **Prompt Studio** section where the user creates, edits, and manages **templates** — named prompts that fully control what is sent to the LLM for summarization. Contract:
 
 - Every style **must** contain the `{{transcript}}` variable — it is the one required placeholder; a style cannot be saved without it.
 - Everything else in the prompt is **free text, fully user-editable**, with optional variables available.
@@ -27,24 +34,24 @@ A first-class **Prompt Studio** section in Settings where the user creates, edit
 
 ## 3. Data model
 
-New table (styles move from loose JSON files into SQLite — consistent with the rest of the app; JSON files remain an import/export format):
+New table (templates move from loose JSON files into SQLite — consistent with the rest of the app; JSON files remain an import/export format). Table named `meeting_templates` (UI term = "template"):
 
 ```sql
-CREATE TABLE meeting_styles (
+CREATE TABLE meeting_templates (
   id          TEXT PRIMARY KEY,            -- uuid
-  name        TEXT NOT NULL UNIQUE,        -- "Standup", "Client call", "جلسه استاندارد"
+  name        TEXT NOT NULL UNIQUE,        -- "Standup", "Client call", "Standard meeting (فارسی)"
   description TEXT,
   icon        TEXT,                        -- emoji/token for pickers
   prompt_body TEXT NOT NULL,               -- full user-editable prompt with {{variables}}
-  is_builtin  INTEGER NOT NULL DEFAULT 0,  -- seeded styles: editable but "Reset to default" available
+  is_default  INTEGER NOT NULL DEFAULT 0,  -- ships with Miting → shown under "Default templates", has "Reset to default"
   sort_order  INTEGER NOT NULL DEFAULT 0,
   created_at  TEXT NOT NULL,
   updated_at  TEXT NOT NULL
 );
-ALTER TABLE meetings ADD COLUMN style_id TEXT REFERENCES meeting_styles(id); -- style used per meeting
+ALTER TABLE meetings ADD COLUMN template_id TEXT REFERENCES meeting_templates(id); -- template used per meeting
 ```
 
-Migration seeds `meeting_styles` by converting each existing built-in JSON template into a `prompt_body` (sections flattened into instruction text). Two Persian styles added (doc 03 §3.4). User's existing custom JSON templates in `%APPDATA%` are imported on first run (one-time, keep files untouched).
+`is_default` (was "is_builtin") is what the UI conveys as the **Default templates** group — no tag chip needed. Migration seeds `meeting_templates` by converting each existing built-in JSON template into a `prompt_body` (sections flattened into instruction text). Two Persian templates added (doc 03 §3.4). User's existing custom JSON templates in `%APPDATA%` are imported on first run (one-time, keep files untouched).
 
 ## 4. Variable system
 
@@ -66,60 +73,59 @@ Rules:
 
 ## 5. UX — Settings → Prompt Studio (new tab)
 
-Replaces the Beta template dropdown + custom-prompt override (Beta keeps only genuinely experimental toggles). Layout (mockup: [mockups/prompt-studio.html](mockups/prompt-studio.html)):
+Replaces the Beta template dropdown + custom-prompt override (Beta keeps only genuinely experimental toggles). Minimal two-pane layout (mockup: [mockups/prompt-studio.html](mockups/prompt-studio.html)):
 
-**Left: style list**
-- Seeded + user styles, drag to reorder (`sort_order`), icon + name + description.
-- Actions: New style · Duplicate · Delete (built-ins: no delete, "Reset to default" instead) · Import/Export JSON.
+**Left: template list** — two plain section headers, no tag chips:
+- **Default templates** — ship with Miting; editable, with "Reset to default" (no delete).
+- **Your templates** — user-created; duplicate/delete freely.
+- Persian names render LTR like every other row (uniform list); reorder via `sort_order`. Import/Export JSON at the bottom.
 
-**Right: editor**
-- Name, description, icon fields.
-- **Prompt body**: monospace textarea (large), with:
-  - Variable palette — click chip (`{{transcript}}`, `{{participants}}`, …) inserts at cursor; chips show live tooltip of what they expand to.
-  - Inline validation: required-variable state, unknown-variable warnings.
-  - Token estimate footer (chars/4 heuristic) + model-context hint.
-- **Preview** button: renders the prompt with variables expanded from a selected past meeting (picker), shows the exact final text that would be sent. This is the trust feature — "what you see is what the LLM gets."
-- **Test run** button (optional, nice-to-have): sends preview to the configured provider, shows output in a drawer. Reuses existing `generate_summary` path with a `dry-run` label; respects cancellation.
+**Right: editor** (kept lean):
+- Name field (that's it up top — description/icon optional, tucked away).
+- **Prompt body**: one monospace textarea + a compact **variable row** — click a chip (`{{transcript}}` required, `{{participants}}`, `{{date}}`, `{{duration}}`, `{{meeting_title}}`) to insert at cursor. Required `{{transcript}}` chip is outlined; missing it disables Save.
+- Footer: a single line — "✓ includes required {{transcript}}" and "Preview shows the exact text sent to your AI". No token-estimate widget in the main view (move any token hint into Preview).
+- **Preview** button: expands variables against a chosen past meeting and shows the byte-exact final prompt. The trust feature — what you see is what the model gets. (Optional Test-run lives inside Preview, not as a second top-level button.)
 
-**Style selection at use time**
-- Recording start: style select (default = last used / global default).
-- Meeting detail: "Regenerate summary" exposes style switcher.
-- `meetings.style_id` records what was used.
+**Template selection at use time**
+- Recording start: template select (default = last used).
+- Meeting detail: "Regenerate summary ▾" exposes the template switcher.
+- `meetings.template_id` records what was used.
 
 ## 6. Prompt assembly changes (`summary/processor.rs`)
 
 Current: template sections → system prompt; transcript chunks → user prompt. New:
 
-1. Resolve style → expand variables **except** `{{transcript}}`.
-2. System prompt = minimal fixed wrapper only: output-format instruction (markdown, heading levels compatible with BlockNote rendering) + language directive (doc 03). *No hidden content instructions* — the style body is the contract.
-3. `{{transcript}}` placement: style body is split at the variable; transcript injected at that point.
-   **Chunking:** when transcript exceeds the provider's context budget, keep the existing chunk→partial→merge strategy: each chunk pass uses the style body with `{{transcript}}` = chunk; merge pass uses a fixed merge prompt + the style's section intent. Document in editor help: "Long meetings are processed in parts; your prompt runs on each part."
-4. Custom-prompt fingerprint cache (`service.rs`) keys on `style_id + updated_at` — cache invalidates on style edit (mechanism already exists for custom prompts; rewire).
+1. Resolve template → expand variables **except** `{{transcript}}`.
+2. System prompt = minimal fixed wrapper only: output-format instruction (markdown, heading levels compatible with BlockNote rendering) + language directive (doc 03). *No hidden content instructions* — the template body is the contract.
+3. `{{transcript}}` placement: template body is split at the variable; transcript injected at that point.
+   **Chunking:** when transcript exceeds the provider's context budget, keep the existing chunk→partial→merge strategy: each chunk pass uses the template body with `{{transcript}}` = chunk; merge pass uses a fixed merge prompt + the template's section intent. Document in editor help: "Long meetings are processed in parts; your prompt runs on each part."
+4. Prompt fingerprint cache (`service.rs`) keys on `template_id + updated_at` — cache invalidates on template edit (mechanism already exists for custom prompts; rewire).
 
 ## 7. File-level change list
 
 | File | Change |
 |---|---|
-| `frontend/src-tauri/migrations/…_meeting_styles.sql` | table + meetings.style_id + seed |
-| `frontend/src-tauri/src/summary/styles.rs` (new) | model, CRUD repo, variable expansion + validation |
-| `frontend/src-tauri/src/summary/template_commands.rs` | extend to style commands: `api_list_styles`, `api_save_style`, `api_delete_style`, `api_reset_style`, `api_preview_style(meeting_id, style_id)`, `api_import_style_json`, `api_export_style_json` |
+| `frontend/src-tauri/migrations/…_meeting_templates.sql` | table + meetings.template_id + seed |
+| `frontend/src-tauri/src/summary/templates_store.rs` (new) | model, CRUD repo, variable expansion + validation |
+| `frontend/src-tauri/src/summary/template_commands.rs` | `api_list_templates`, `api_save_template`, `api_delete_template`, `api_reset_template`, `api_preview_template(meeting_id, template_id)`, `api_import_template_json`, `api_export_template_json` |
 | `frontend/src-tauri/src/summary/processor.rs` | assembly per §6 |
 | `frontend/src/app/settings/page.tsx` | new Prompt Studio tab |
-| `frontend/src/components/PromptStudio/` (new) | list, editor, variable palette, preview drawer |
+| `frontend/src/components/PromptStudio/` (new) | list (two groups), lean editor, variable row, preview |
 | `frontend/src/components/BetaSettings.tsx` | remove template dropdown + custom prompt override (migrated) |
 
 ## 8. Edge cases
 
-- Style deleted while set as a meeting's `style_id` → regenerate falls back to default style with notice (FK is soft; keep id for history display "used deleted style X").
+- Template deleted while set as a meeting's `template_id` → regenerate falls back to the default template with a notice (FK is soft; keep id for history "used deleted template X").
 - Empty transcript (no speech) → block generation with clear message before any LLM call.
 - Very large `{{participants}}` (50+) → cap at 30 names + "and N more".
 - Import of old sections-JSON template files → converter produces a prompt body (same as migration seeder); invalid JSON → error with line info (reuse `api_validate_template` logic).
 
 ## 9. Acceptance criteria
 
-- [ ] Cannot save style without `{{transcript}}`; all optional variables expand correctly (unit-tested).
+- [ ] UI says "template" everywhere; two list groups (Default / Your), no tag chips; Persian names render LTR in the list.
+- [ ] Cannot save a template without `{{transcript}}`; all optional variables expand correctly (unit-tested).
 - [ ] Preview shows byte-exact prompt later sent to provider (verified via debug log comparison).
-- [ ] Six seeded styles + two Persian styles present after migration; editing a built-in then "Reset to default" restores original.
+- [ ] Default templates (6) + two Persian templates present after migration; editing a default then "Reset to default" restores original.
 - [ ] Old custom JSON templates auto-imported once.
-- [ ] Summary generation uses selected style verbatim; regenerating with a different style produces correspondingly different output.
-- [ ] Export→Import round-trips a style losslessly.
+- [ ] Summary generation uses the selected template verbatim; regenerating with a different template changes output.
+- [ ] Export→Import round-trips a template losslessly.

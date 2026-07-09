@@ -49,6 +49,8 @@ Paste webhook URL → Test (posts "Miting connected ✅"). Stored in keychain. L
 
 ## 4. Send-to-Slack UX
 
+> **Naming (user feedback):** the button was an ambiguous "Send to Slack". In the redesign it lives inside a **Share ▾** menu whose item spells out the action and payload: **"Post recap to Slack → #channel"**, where *recap* = the meeting summary + key decisions + action items (not the raw transcript). This removes the "what does it even send?" confusion (doc 13 §0.5).
+
 - Meeting detail header: **"Send to Slack"** button → popover: channel picker (bot mode: `conversations.list` public channels + search + MRU; webhook mode: fixed label), content checkboxes (Summary ✓ / Decisions ✓ / Action items ✓ / Participants ☐ / link note), preview pane rendering the Block Kit output, **Send**.
 - Post-send: "Sent to #product-sync" + permalink (`chat.postMessage` response `ts` → `chat.getPermalink`); delivery logged (doc 10 §4). Re-send warns "already sent to #product-sync at 14:02".
 - Per-section send: AISummary section menus gain "Send to Slack" (single-section message; bot mode offers "reply in thread of the recap" when a recap `ts` exists).

@@ -2,6 +2,24 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Development skills & conventions (read before coding)
+
+Authoritative playbooks live in **`.claude/skills/`** (Cursor loads them via
+`.cursor/rules/00-skills.mdc`). Load the relevant one before working:
+`rust-skills` (179 Rust rules), `tauri-dev`, `extension-dev`, `testing-e2e`,
+`db-migrations`, `release-rollback`.
+
+In force on every change (see `docs/product-plan/17-engineering-playbook.md`):
+- **Conventional Commits v1.0.0**, one commit per increment, each green (CI gates it).
+- **New/refactored source files ≤120 code lines** (`scripts/check-file-length.mjs`; tests excluded; legacy files grandfathered, split-on-touch).
+- **Tests + e2e accompany every feature** — pick the layer via the `testing-e2e` skill.
+- **CI** (`.github/workflows/ci.yml`) runs fmt/clippy/test (Rust), typecheck+vitest (extension), typecheck+lint (frontend), and the convention gates on every PR/push. `main` is PR-only, squash-merge.
+- **DB migrations are additive + forward-only**; a pre-migration backup runs automatically (`database::backup`). Never edit an applied migration.
+
+The staged build order and rollback map are in
+`docs/product-plan/17-engineering-playbook.md`; feature specs in
+`docs/product-plan/` (docs 01–16).
+
 ## Project Overview
 
 **Meetily** is a privacy-first AI meeting assistant that captures, transcribes, and summarizes meetings entirely on local infrastructure. The supported application is the Tauri desktop app with a Rust core.

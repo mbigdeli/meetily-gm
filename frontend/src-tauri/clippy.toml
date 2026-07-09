@@ -1,0 +1,6 @@
+# Miting Rust lint config. Pair with `cargo clippy -- -D warnings` in CI.
+# Per-function size guard (no file-length lint exists in clippy — file length
+# is enforced separately by scripts/check-file-length.mjs).
+too-many-lines-threshold = 120
+cognitive-complexity-threshold = 25
+too-many-arguments-threshold = 8
