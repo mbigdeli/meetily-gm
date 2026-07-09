@@ -4,6 +4,31 @@
 
 ---
 
+## Implementation status (M2, partial — safe slice done)
+
+**Shipped:**
+- Upstream PostHog key removed from `analytics/commands.rs`; the key is now read
+  at build time from `MITING_POSTHOG_KEY` (`option_env!`), and analytics is
+  `enabled` only when a key is present. With no key, `AnalyticsClient::new`
+  creates no client (`analytics.rs:87`) → **zero telemetry egress**. No data can
+  reach Meetily's workspace.
+- Deleted dead `lib_old_complex.rs` (held a second stale key). No hardcoded
+  `phc_` keys remain in `src/`.
+- Updater endpoint (`tauri.conf.json`) and `generate-update-manifest-github.js`
+  repointed from `Zackriya-Solutions/meeting-minutes` → `mbigdeli/meetily-gm`
+  (GitHub redirects this if the repo is later renamed to `miting`).
+
+**Still to do (needs a decision / a manual step):**
+- **Signing key:** the updater `pubkey` is still upstream's minisign key. Until
+  a new keypair is generated (`pnpm tauri signer generate`) and releases are
+  signed with it, no OTA update will verify/install — a safe failsafe, but
+  auto-update is effectively off until then. This is a human step (§4.1).
+- **Identifier / productName rename** (`com.meetily.ai` → `li.bigde.miting`,
+  `meetily` → `Miting`): deferred — it moves the app-data directory, so it needs
+  the one-time data-migration decision in doc 01 §4 before flipping.
+- Own PostHog project + `MITING_POSTHOG_KEY` in CI secrets (when the owner wants
+  telemetry back on).
+
 ## 1. Goal
 
 1. **Analytics:** no event ever reaches Meetily's PostHog workspace. Replace with the author's own PostHog project, preserving the existing opt-in consent UX.

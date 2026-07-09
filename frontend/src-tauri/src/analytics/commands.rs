@@ -8,10 +8,15 @@ static ANALYTICS_CLIENT: std::sync::Mutex<Option<Arc<AnalyticsClient>>> = std::s
 
 #[command]
 pub async fn init_analytics() -> Result<(), String> {
+    // Telemetry key is injected at build time (MITING_POSTHOG_KEY). When
+    // absent, analytics is disabled and no events leave the device. The old
+    // hardcoded upstream key is gone — never send data to Meetily's workspace.
+    // See docs/product-plan/02-analytics-and-updates.md.
+    let api_key = option_env!("MITING_POSTHOG_KEY").unwrap_or("");
     let config = AnalyticsConfig {
-        api_key: "phc_Aa9PqeCkDkVbtbRsYjtmHANBfcscjCVupxZwrtL5vZ77".to_string(),
+        api_key: api_key.to_string(),
         host: Some("https://us.i.posthog.com".to_string()),
-        enabled: true,
+        enabled: !api_key.is_empty(),
     };
     
     let client = Arc::new(AnalyticsClient::new(config).await);
