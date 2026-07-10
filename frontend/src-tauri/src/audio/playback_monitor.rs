@@ -161,6 +161,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    #[ignore = "requires an audio output device; CI runners are headless (run locally with --ignored)"]
     async fn test_get_output_device() {
         let result = get_active_audio_output().await;
         assert!(result.is_ok(), "Should be able to get output device");
