@@ -106,7 +106,10 @@ jobs:
         with:
           node-version: 20
       # New/changed source files must stay small (see scripts/check-file-length.mjs).
+      # PR-only: it's a pre-merge review gate. Direct pushes to main skip it
+      # (otherwise touching any pre-existing large file fails the push).
       - name: File length gate
+        if: github.event_name == 'pull_request'
         run: node scripts/check-file-length.mjs
       # Conventional Commits on PR commits (non-blocking on push to main).
       - name: Commit message lint
