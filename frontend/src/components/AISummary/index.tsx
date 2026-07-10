@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Summary, Block } from '@/types';
 import { Section } from './Section';
+import { ShareBar } from './ShareBar';
 import { EditableTitle } from '../EditableTitle';
 import { ExclamationTriangleIcon, CheckCircleIcon, ClipboardDocumentCheckIcon } from '@heroicons/react/24/outline';
 
@@ -658,7 +659,8 @@ export const AISummary = ({ summary, status, error, onSummaryChange, onRegenerat
   return (
     <div className="relative">
 
-      
+      <ShareBar meetingTitle={meeting?.title || ''} getMarkdown={convertToMarkdown} />
+
       {selectedBlocks.length > 1 && (
         <textarea
           ref={hiddenInputRef}
