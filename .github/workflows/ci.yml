@@ -28,6 +28,15 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: frontend/src-tauri
+      # Tauri's build script requires the sidecar binaries (externalBin) to
+      # exist. The llama-helper sidecar isn't built in the test gate (heavy,
+      # GPU deps) and unit tests never execute it — stub the file so the build
+      # script's existence check passes. (build.rs auto-downloads ffmpeg.)
+      - name: Stub llama-helper sidecar
+        shell: bash
+        run: |
+          mkdir -p binaries
+          : > binaries/llama-helper-x86_64-pc-windows-msvc.exe
       # Hard gate: tests must pass.
       - run: cargo test --lib
       # Advisory until a formatting + warnings cleanup pass (the existing
@@ -69,6 +78,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
+        with:
+          version: 9
       - uses: actions/setup-node@v4
         with:
           node-version: 20
