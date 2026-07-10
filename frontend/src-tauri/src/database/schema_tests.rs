@@ -49,3 +49,11 @@ async fn meeting_templates_table_present() {
     assert!(cols.contains(&"prompt_body".to_string()), "missing prompt_body: {cols:?}");
     assert!(cols.contains(&"is_default".to_string()), "missing is_default: {cols:?}");
 }
+
+#[tokio::test]
+async fn integration_settings_table_present() {
+    let pool = fresh_migrated_pool().await;
+    let cols = columns(&pool, "integration_settings").await;
+    assert!(cols.contains(&"key".to_string()), "missing key: {cols:?}");
+    assert!(cols.contains(&"value".to_string()), "missing value: {cols:?}");
+}

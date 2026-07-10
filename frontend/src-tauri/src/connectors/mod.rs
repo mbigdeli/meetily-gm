@@ -7,8 +7,10 @@
 //! these format converters (follow-up).
 
 pub mod adf;
+pub mod integration_commands;
 pub mod jira;
 pub mod jira_client;
 pub mod mrkdwn;
+pub mod secrets;
 pub mod slack;
 pub mod slack_client;

@@ -690,6 +690,11 @@ pub fn run() {
             summary::template_studio_commands::api_studio_delete_template,
             summary::template_studio_commands::api_studio_preview_template,
             export::commands::api_export_participants,
+            connectors::integration_commands::api_set_integration_secret,
+            connectors::integration_commands::api_integration_status,
+            connectors::integration_commands::api_disconnect_integration,
+            connectors::integration_commands::api_slack_send_recap,
+            connectors::integration_commands::api_jira_create_issue,
             // Codex CLI commands (Meetily-GM)
             codex::commands::codex_status,
             codex::commands::codex_login_start,
