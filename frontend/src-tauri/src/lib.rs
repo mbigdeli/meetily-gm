@@ -689,6 +689,7 @@ pub fn run() {
             summary::template_studio_commands::api_studio_save_template,
             summary::template_studio_commands::api_studio_delete_template,
             summary::template_studio_commands::api_studio_preview_template,
+            export::commands::api_export_participants,
             // Codex CLI commands (Meetily-GM)
             codex::commands::codex_status,
             codex::commands::codex_login_start,

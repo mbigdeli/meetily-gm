@@ -2,4 +2,5 @@
 //! structs so they're testable without the DB; the DB layer maps rows and the
 //! Tauri commands write files via the OS dialog (never hardcode paths).
 
+pub mod commands;
 pub mod participants;
