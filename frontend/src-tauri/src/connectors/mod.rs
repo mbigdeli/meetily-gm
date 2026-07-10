@@ -8,5 +8,7 @@
 
 pub mod adf;
 pub mod jira;
+pub mod jira_client;
 pub mod mrkdwn;
 pub mod slack;
+pub mod slack_client;
