@@ -41,7 +41,7 @@ jobs:
       # FFI device access and segfault on headless runners (0xc0000005) — they
       # run locally, not in CI. This still covers summary/db/connectors/export/
       # providers/gmeet (the logic that regresses).
-      - run: cargo test --lib -- --skip audio:: --skip whisper --skip parakeet
+      - run: "cargo test --lib -- --skip audio:: --skip whisper --skip parakeet"
       # Advisory until a formatting + warnings cleanup pass (the existing
       # codebase is not rustfmt-clean and has ~15 legacy clippy warnings).
       # Flip continue-on-error off once clean. New code should still be tidy;
