@@ -685,6 +685,10 @@ pub fn run() {
             summary::template_commands::api_list_templates,
             summary::template_commands::api_get_template_details,
             summary::template_commands::api_validate_template,
+            summary::template_studio_commands::api_studio_list_templates,
+            summary::template_studio_commands::api_studio_save_template,
+            summary::template_studio_commands::api_studio_delete_template,
+            summary::template_studio_commands::api_studio_preview_template,
             // Codex CLI commands (Meetily-GM)
             codex::commands::codex_status,
             codex::commands::codex_login_start,

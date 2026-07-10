@@ -38,6 +38,7 @@ pub mod processor;
 pub mod service;
 pub mod summary_engine;
 pub mod template_commands;
+pub mod template_studio_commands;
 pub mod template_vars;
 pub mod templates;
 pub mod templates_seed;

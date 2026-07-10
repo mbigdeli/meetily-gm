@@ -39,6 +39,13 @@ impl DatabaseManager {
         crate::database::backup::backup_if_pending(&pool, tauri_db_path, embedded_max).await;
         migrator.run(&pool).await?;
 
+        // Seed default Prompt Studio templates on first run (idempotent;
+        // non-fatal so a seed hiccup never blocks DB open).
+        let now = chrono::Utc::now().to_rfc3339();
+        if let Err(e) = crate::summary::templates_seed::seed_defaults(&pool, &now).await {
+            log::warn!("prompt-studio template seed failed (non-fatal): {e}");
+        }
+
         Ok(DatabaseManager { pool })
     }
 
