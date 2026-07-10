@@ -40,6 +40,7 @@ pub mod summary_engine;
 pub mod template_commands;
 pub mod template_vars;
 pub mod templates;
+pub mod templates_seed;
 pub mod templates_store;
 
 // Re-export Tauri commands (with their generated __cmd__ variants)
