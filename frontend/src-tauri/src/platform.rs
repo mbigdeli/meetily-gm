@@ -18,10 +18,12 @@ pub fn open_external_url(url: &str) -> Result<(), String> {
 
 #[cfg(target_os = "windows")]
 fn open_url(url: &str) -> Result<(), String> {
-    // `start` is a cmd builtin; the empty "" is the window-title arg so a URL
-    // with special characters isn't mistaken for the title.
-    std::process::Command::new("cmd")
-        .args(["/C", "start", "", url])
+    // NOT `cmd /C start` — cmd.exe re-parses the whole command line itself and
+    // treats an unquoted `&` as a command separator, silently truncating any
+    // URL with more than one query parameter (e.g. every OAuth authorize URL).
+    // rundll32 takes the URL as a plain argv entry with no shell re-parsing.
+    std::process::Command::new("rundll32")
+        .args(["url.dll,FileProtocolHandler", url])
         .spawn()
         .map(|_| ())
         .map_err(|e| e.to_string())
