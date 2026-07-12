@@ -2,19 +2,20 @@
 
 import React, { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { CheckCircle2, Slack, Sparkles, ExternalLink, ChevronDown, Loader2 } from 'lucide-react';
-import { ConnectAssistant } from './ConnectAssistant';
+import { CheckCircle2, Slack, ExternalLink, ChevronDown, Loader2 } from 'lucide-react';
 
-const SLACK_APPS_URL = 'https://api.slack.com/apps';
+// Miting's own registered Slack app (public client, PKCE — Client ID is not a
+// secret). Embedded so users just click Connect; overridable under Advanced.
+const DEFAULT_CLIENT_ID = '11569736741734.11565513375619';
 const DEFAULT_CALLBACK = 'https://mbigdeli.github.io/meetily-gm/oauth/slack-callback.html';
+const SLACK_APPS_URL = 'https://api.slack.com/apps';
 
-/** Slack connection. Primary path = one-click OAuth (PKCE, no secret). The
- *  assistant guides the one-time app setup; raw tokens live under "Advanced". */
+/** Slack connection: one-click OAuth (PKCE, no secret). Client ID ships with
+ *  the app; the setup + manual-token fields are optional, collapsed by default. */
 export function SlackConnectCard({ connected, onChanged }: { connected: boolean; onChanged: () => void }) {
-  const [showAI, setShowAI] = useState(false);
-  const [showSetup, setShowSetup] = useState(!connected);
+  const [showSetup, setShowSetup] = useState(false);
   const [showManual, setShowManual] = useState(false);
-  const [clientId, setClientId] = useState('');
+  const [clientId, setClientId] = useState(DEFAULT_CLIENT_ID);
   const [callback, setCallback] = useState(DEFAULT_CALLBACK);
   const [user, setUser] = useState('');
   const [bot, setBot] = useState('');
@@ -31,7 +32,7 @@ export function SlackConnectCard({ connected, onChanged }: { connected: boolean;
   const open = (url: string) => invoke('api_open_external', { url }).catch(() => {});
 
   const connectOAuth = async () => {
-    if (!clientId.trim()) { setShowSetup(true); setMsg('Paste your Slack Client ID first (see "Help me connect").'); return; }
+    if (!clientId.trim()) { setShowSetup(true); setMsg('Missing Slack Client ID.'); return; }
     setBusy(true); setMsg('Opening Slack in your browser… approve there, then come back.');
     try {
       const team = await invoke<string>('api_slack_oauth_connect', { clientId: clientId.trim(), redirectUri: callback.trim() });
@@ -63,28 +64,25 @@ export function SlackConnectCard({ connected, onChanged }: { connected: boolean;
           ? <span className="flex items-center gap-1 text-green-600 text-sm"><CheckCircle2 className="w-4 h-4" /> Connected</span>
           : <span className="text-gray-400 text-sm">Not connected</span>}
       </div>
-      <p className="mt-2 text-sm text-gray-600">Post recaps and read your channels as you. One-time setup (~2 min) — the assistant walks you through it — then it&apos;s just <span className="font-medium">Connect &rarr; Allow</span>.</p>
+      <p className="mt-2 text-sm text-gray-600">Post recaps and read your channels as you. Just click <span className="font-medium">Connect &rarr; Allow</span>.</p>
 
       <div className="mt-3 flex flex-wrap gap-2">
         <button onClick={connectOAuth} disabled={busy} className="px-3 py-2 rounded-md text-sm font-semibold bg-[#611F69] text-white disabled:opacity-50 flex items-center gap-1.5">
           {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Slack className="w-4 h-4" />} Connect with Slack
         </button>
-        <button onClick={() => setShowAI((v) => !v)} className="px-3 py-2 rounded-md text-sm font-medium bg-violet-100 text-violet-700 flex items-center gap-1.5"><Sparkles className="w-4 h-4" /> Help me connect</button>
         {connected && <button onClick={disconnect} className="px-3 py-2 rounded-md text-sm text-gray-600">Disconnect</button>}
       </div>
 
-      <button onClick={() => setShowSetup((v) => !v)} className="mt-3 text-xs text-gray-500 flex items-center gap-1">
-        <ChevronDown className={`w-3 h-3 transition ${showSetup ? 'rotate-180' : ''}`} /> One-time setup (Client ID + callback)
+      <button onClick={() => setShowSetup((v) => !v)} className="mt-3 text-xs text-gray-400 flex items-center gap-1">
+        <ChevronDown className={`w-3 h-3 transition ${showSetup ? 'rotate-180' : ''}`} /> Advanced setup (Client ID + callback)
       </button>
       {showSetup && (
         <div className="mt-2 space-y-2">
-          <input className={input} placeholder="Slack Client ID (from api.slack.com → your app)" value={clientId} onChange={(e) => setClientId(e.target.value)} />
-          <input className={input} placeholder="Callback URL (GitHub Pages)" value={callback} onChange={(e) => setCallback(e.target.value)} />
+          <input className={input} placeholder="Slack Client ID" value={clientId} onChange={(e) => setClientId(e.target.value)} />
+          <input className={input} placeholder="Callback URL" value={callback} onChange={(e) => setCallback(e.target.value)} />
           <button onClick={() => open(SLACK_APPS_URL)} className="text-xs text-blue-600 flex items-center gap-1"><ExternalLink className="w-3 h-3" /> Open api.slack.com/apps</button>
         </div>
       )}
-
-      {showAI && <div className="mt-3"><ConnectAssistant topic="slack" /></div>}
 
       <button onClick={() => setShowManual((v) => !v)} className="mt-3 text-xs text-gray-400 flex items-center gap-1">
         <ChevronDown className={`w-3 h-3 transition ${showManual ? 'rotate-180' : ''}`} /> Advanced: paste a token / webhook manually
