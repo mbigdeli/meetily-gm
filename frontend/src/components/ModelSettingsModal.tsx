@@ -226,6 +226,10 @@ export function ModelSettingsModal({
   }
   const [codexStatus, setCodexStatus] = useState<CodexStatus | null>(null);
   const [codexBusy, setCodexBusy] = useState(false);
+  // Auth URL codex printed, shown as a manual fallback if the browser didn't
+  // auto-open; cancel ref lets the user abort the sign-in poll early.
+  const [codexAuthUrl, setCodexAuthUrl] = useState<string | null>(null);
+  const codexCancelRef = useRef(false);
 
   const refreshCodexStatus = async (): Promise<CodexStatus | null> => {
     try {
@@ -245,14 +249,27 @@ export function ModelSettingsModal({
 
   const signInCodex = async () => {
     setCodexBusy(true);
+    setCodexAuthUrl(null);
+    codexCancelRef.current = false;
     try {
-      await invoke('codex_login_start');
-      toast.info('Complete the sign-in in the browser window Codex just opened...');
+      const session = (await invoke('codex_login_start')) as {
+        pid: number;
+        auth_url: string | null;
+      };
+      if (session?.auth_url) setCodexAuthUrl(session.auth_url);
+      toast.info(
+        "Complete the sign-in in the browser Codex opened. If it didn't open, use the link below.",
+      );
       // Poll until connected (up to 5 minutes, matching codex login's window)
       for (let i = 0; i < 100; i++) {
+        if (codexCancelRef.current) {
+          toast.info('Codex sign-in cancelled.');
+          return;
+        }
         await new Promise((r) => setTimeout(r, 3000));
         const status = await refreshCodexStatus();
         if (status?.connected) {
+          setCodexAuthUrl(null);
           toast.success(
             status.user_email
               ? `Connected to Codex as ${status.user_email}`
@@ -266,6 +283,19 @@ export function ModelSettingsModal({
       toast.error(`Codex sign-in failed: ${err}`);
     } finally {
       setCodexBusy(false);
+    }
+  };
+
+  const cancelCodexSignIn = () => {
+    codexCancelRef.current = true;
+  };
+
+  const openCodexAuthUrl = async () => {
+    if (!codexAuthUrl) return;
+    try {
+      await invoke('api_open_external', { url: codexAuthUrl });
+    } catch (err) {
+      toast.error(`Couldn't open the sign-in page: ${err}`);
     }
   };
 
@@ -1233,15 +1263,38 @@ export function ModelSettingsModal({
                   Sign out
                 </Button>
               ) : null}
+              {codexBusy ? (
+                <Button type="button" variant="outline" onClick={() => cancelCodexSignIn()}>
+                  Cancel
+                </Button>
+              ) : null}
               <Button
                 type="button"
                 variant="ghost"
                 onClick={() => refreshCodexStatus()}
-                disabled={codexBusy}
               >
                 Refresh
               </Button>
             </div>
+            {codexAuthUrl ? (
+              <div className="text-xs text-muted-foreground space-y-1">
+                <div>Browser didn&apos;t open? Use this sign-in link:</div>
+                <div className="flex items-center space-x-2">
+                  <code className="truncate max-w-[280px]">{codexAuthUrl}</code>
+                  <Button type="button" variant="outline" size="sm" onClick={() => openCodexAuthUrl()}>
+                    Open
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => navigator.clipboard.writeText(codexAuthUrl)}
+                  >
+                    Copy
+                  </Button>
+                </div>
+              </div>
+            ) : null}
           </div>
         )}
 
