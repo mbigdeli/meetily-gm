@@ -371,6 +371,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     'builtin-ai': [],
     'custom-openai': [],
     codex: ['default'],
+    'claude-code': ['default'],
   };
 
   // Toggle confidence indicator with localStorage persistence

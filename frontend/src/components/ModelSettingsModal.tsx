@@ -31,7 +31,7 @@ import { cn, isOllamaNotInstalledError } from '@/lib/utils';
 import { toast } from 'sonner';
 
 export interface ModelConfig {
-  provider: 'ollama' | 'groq' | 'claude' | 'openai' | 'openrouter' | 'builtin-ai' | 'custom-openai' | 'codex';
+  provider: 'ollama' | 'groq' | 'claude' | 'openai' | 'openrouter' | 'builtin-ai' | 'custom-openai' | 'codex' | 'claude-code';
   model: string;
   whisperModel: string;
   apiKey?: string | null;
@@ -336,6 +336,7 @@ export function ModelSettingsModal({
     'builtin-ai': builtinAiModels.map((m) => m.name),
     'custom-openai': customOpenAIModel ? [customOpenAIModel] : [], // User specifies model manually
     codex: ['default'], // Model is chosen by the Codex CLI itself
+    'claude-code': ['default'], // Model is chosen by the Claude CLI itself
   };
 
   const requiresApiKey =
@@ -981,6 +982,7 @@ export function ModelSettingsModal({
               <SelectContent className="max-h-64 overflow-y-auto">
                 <SelectItem value="builtin-ai">Built-in AI (Offline, No API needed)</SelectItem>
                 <SelectItem value="claude">Claude</SelectItem>
+                <SelectItem value="claude-code">Claude Code (Claude plan, no API key)</SelectItem>
                 <SelectItem value="codex">OpenAI Codex (ChatGPT plan, no API key)</SelectItem>
                 <SelectItem value="custom-openai">Custom Server (OpenAI)</SelectItem>
                 <SelectItem value="groq">Groq</SelectItem>
@@ -1295,6 +1297,21 @@ export function ModelSettingsModal({
                 </div>
               </div>
             ) : null}
+          </div>
+        )}
+
+        {modelConfig.provider === 'claude-code' && (
+          <div className="space-y-2 border-t pt-4 text-sm text-muted-foreground">
+            <div>
+              Summaries run through your local Claude Code CLI (the{' '}
+              <code>claude</code> command) using your Claude subscription — no API
+              key, nothing stored by this app.
+            </div>
+            <div>
+              Make sure you&apos;re signed in: run <code>claude</code> once in a
+              terminal. Install with{' '}
+              <code>npm i -g @anthropic-ai/claude-code</code> if it&apos;s missing.
+            </div>
           </div>
         )}
 
