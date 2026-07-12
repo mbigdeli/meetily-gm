@@ -3,7 +3,7 @@
 //! post. Frontend passes the recap/issue content it already shows.
 
 use super::jira_client::{self, JiraCreate};
-use super::{secrets, slack_client};
+use super::{secrets, slack_client, slack_read};
 use crate::state::AppState;
 use serde::Deserialize;
 use tauri::State;
@@ -35,7 +35,19 @@ pub async fn api_disconnect_integration(
     secrets::delete_connector(state.db_manager.pool(), &connector).await.map_err(|e| e.to_string())
 }
 
-/// Post a meeting recap to Slack: bot token if present, else webhook.
+/// Token that acts on the user's behalf: a user token (xoxp, acts as you) wins;
+/// a bot token is the fallback.
+async fn acting_slack_token(pool: &sqlx::SqlitePool) -> Result<Option<String>, String> {
+    if let Some(u) = secrets::get(pool, "slack.user_token").await.map_err(|e| e.to_string())? {
+        if !u.is_empty() {
+            return Ok(Some(u));
+        }
+    }
+    secrets::get(pool, "slack.bot_token").await.map_err(|e| e.to_string())
+}
+
+/// Post a meeting recap to Slack — as you if a user token is set, else the bot,
+/// else an incoming webhook.
 #[tauri::command]
 pub async fn api_slack_send_recap(
     state: State<'_, AppState>,
@@ -45,14 +57,39 @@ pub async fn api_slack_send_recap(
     summary_md: String,
 ) -> Result<String, String> {
     let pool = state.db_manager.pool();
-    if let Some(tok) = secrets::get(pool, "slack.bot_token").await.map_err(|e| e.to_string())? {
+    if let Some(tok) = acting_slack_token(pool).await? {
         return slack_client::post_message(&http(), &tok, &channel, &title, &context, &summary_md).await;
     }
     if let Some(url) = secrets::get(pool, "slack.webhook_url").await.map_err(|e| e.to_string())? {
         slack_client::post_webhook(&http(), &url, &title, &context, &summary_md).await?;
         return Ok(String::new());
     }
-    Err("Slack is not connected — add a bot token or webhook URL in Integrations.".into())
+    Err("Slack is not connected — add a token or webhook URL in Integrations.".into())
+}
+
+/// List Slack channels the connected account can see (populates channel pickers).
+#[tauri::command]
+pub async fn api_slack_list_channels(
+    state: State<'_, AppState>,
+) -> Result<Vec<slack_read::SlackChannel>, String> {
+    let tok = acting_slack_token(state.db_manager.pool())
+        .await?
+        .ok_or_else(|| "Slack is not connected.".to_string())?;
+    slack_read::list_channels(&http(), &tok).await
+}
+
+/// Search Slack messages as the connected user (requires a user token, xoxp-…).
+#[tauri::command]
+pub async fn api_slack_search(
+    state: State<'_, AppState>,
+    query: String,
+) -> Result<Vec<slack_read::SlackMessage>, String> {
+    let tok = secrets::get(state.db_manager.pool(), "slack.user_token")
+        .await
+        .map_err(|e| e.to_string())?
+        .filter(|t| !t.is_empty())
+        .ok_or_else(|| "Slack search needs a User token (xoxp-…). Add one in Integrations.".to_string())?;
+    slack_read::search_messages(&http(), &tok, &query).await
 }
 
 #[derive(Deserialize)]

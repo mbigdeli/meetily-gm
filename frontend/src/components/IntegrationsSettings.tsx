@@ -18,6 +18,7 @@ export function IntegrationsSettings() {
 
   const [slackToken, setSlackToken] = useState('');
   const [slackWebhook, setSlackWebhook] = useState('');
+  const [slackUser, setSlackUser] = useState('');
   const [jiraSite, setJiraSite] = useState('');
   const [jiraEmail, setJiraEmail] = useState('');
   const [jiraToken, setJiraToken] = useState('');
@@ -40,12 +41,14 @@ export function IntegrationsSettings() {
     setBusy(true);
     setMsg(null);
     try {
-      if (!slackToken.trim() && !slackWebhook.trim()) {
-        setMsg('Enter a bot token or a webhook URL.');
+      if (!slackUser.trim() && !slackToken.trim() && !slackWebhook.trim()) {
+        setMsg('Enter a user token, bot token, or webhook URL.');
         return;
       }
+      if (slackUser.trim()) await setSecret('slack.user_token', slackUser.trim());
       if (slackToken.trim()) await setSecret('slack.bot_token', slackToken.trim());
       if (slackWebhook.trim()) await setSecret('slack.webhook_url', slackWebhook.trim());
+      setSlackUser('');
       setSlackToken('');
       setSlackWebhook('');
       setMsg('Slack connected.');
@@ -110,9 +113,14 @@ export function IntegrationsSettings() {
           )}
         </div>
         <div className="mt-3 space-y-2">
+          <label className="text-xs font-medium text-gray-700">
+            User token (xoxp-…) — acts as your own account: read, search &amp; send
+          </label>
+          <input className={input} placeholder="xoxp-… (recommended)" value={slackUser}
+            onChange={(e) => setSlackUser(e.target.value)} />
+          <div className="text-center text-xs text-gray-400">or a bot / webhook (send-only)</div>
           <input className={input} placeholder="Bot token (xoxb-…)" value={slackToken}
             onChange={(e) => setSlackToken(e.target.value)} />
-          <div className="text-center text-xs text-gray-400">or</div>
           <input className={input} placeholder="Incoming webhook URL (https://hooks.slack.com/…)"
             value={slackWebhook} onChange={(e) => setSlackWebhook(e.target.value)} />
           <div className="flex gap-2 pt-1">

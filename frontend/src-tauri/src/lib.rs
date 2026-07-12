@@ -694,6 +694,8 @@ pub fn run() {
             connectors::integration_commands::api_integration_status,
             connectors::integration_commands::api_disconnect_integration,
             connectors::integration_commands::api_slack_send_recap,
+            connectors::integration_commands::api_slack_list_channels,
+            connectors::integration_commands::api_slack_search,
             connectors::integration_commands::api_jira_create_issue,
             // Codex CLI commands (Meetily-GM)
             codex::commands::codex_status,

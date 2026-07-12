@@ -20,6 +20,7 @@ export function ShareBar({ meetingTitle, getMarkdown }: Props) {
   const [msg, setMsg] = useState<string | null>(null);
 
   const [channel, setChannel] = useState('');
+  const [channels, setChannels] = useState<{ id: string; name: string }[]>([]);
   const [projectId, setProjectId] = useState('');
   const [issueTypeId, setIssueTypeId] = useState('');
   const [summary, setSummary] = useState(meetingTitle || '');
@@ -65,7 +66,14 @@ export function ShareBar({ meetingTitle, getMarkdown }: Props) {
     <div className="mb-4 border border-gray-200 rounded-lg p-3 bg-white">
       <div className="flex items-center gap-2">
         <span className="text-xs text-gray-400 mr-1">Share:</span>
-        <button className={tab} onClick={() => setPanel(panel === 'slack' ? null : 'slack')}>
+        <button className={tab} onClick={async () => {
+          const open = panel !== 'slack';
+          setPanel(open ? 'slack' : null);
+          if (open) {
+            try { setChannels(await invoke<{ id: string; name: string }[]>('api_slack_list_channels')); }
+            catch { setChannels([]); }
+          }
+        }}>
           <Slack className="w-4 h-4 text-[#611F69]" /> Send to Slack
         </button>
         <button className={tab} onClick={() => setPanel(panel === 'jira' ? null : 'jira')}>
@@ -76,8 +84,17 @@ export function ShareBar({ meetingTitle, getMarkdown }: Props) {
 
       {panel === 'slack' && (
         <div className="mt-3 flex items-center gap-2">
-          <input className={`${input} flex-1`} placeholder="#channel or channel ID"
-            value={channel} onChange={(e) => setChannel(e.target.value)} />
+          {channels.length > 0 ? (
+            <select className={`${input} flex-1`} value={channel} onChange={(e) => setChannel(e.target.value)}>
+              <option value="">Select a channel…</option>
+              {channels.map((c) => (
+                <option key={c.id} value={c.id}>#{c.name}</option>
+              ))}
+            </select>
+          ) : (
+            <input className={`${input} flex-1`} placeholder="#channel or channel ID"
+              value={channel} onChange={(e) => setChannel(e.target.value)} />
+          )}
           <button className={go} disabled={busy || !channel.trim()} onClick={sendSlack}>Send</button>
         </div>
       )}
