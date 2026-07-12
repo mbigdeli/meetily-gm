@@ -312,9 +312,101 @@ export function ModelSettingsModal({
     }
   };
 
+  // --- Claude Code CLI provider state (Miting) — mirrors the Codex flow ---
+  interface ClaudeStatus {
+    connected: boolean;
+    cli_installed: boolean;
+    cli_path?: string | null;
+    cli_version?: string | null;
+    user_email?: string | null;
+    subscription_type?: string | null;
+    detail?: string | null;
+  }
+  const [claudeStatus, setClaudeStatus] = useState<ClaudeStatus | null>(null);
+  const [claudeBusy, setClaudeBusy] = useState(false);
+  const [claudeAuthUrl, setClaudeAuthUrl] = useState<string | null>(null);
+  const claudeCancelRef = useRef(false);
+
+  const refreshClaudeStatus = async (): Promise<ClaudeStatus | null> => {
+    try {
+      const status = (await invoke('claude_code_status')) as ClaudeStatus;
+      setClaudeStatus(status);
+      return status;
+    } catch (err) {
+      console.error('claude_code_status failed:', err);
+      setClaudeStatus({ connected: false, cli_installed: false, detail: String(err) });
+      return null;
+    }
+  };
+
+  const signInClaude = async () => {
+    setClaudeBusy(true);
+    setClaudeAuthUrl(null);
+    claudeCancelRef.current = false;
+    try {
+      const session = (await invoke('claude_code_login_start')) as {
+        pid: number;
+        auth_url: string | null;
+      };
+      if (session?.auth_url) setClaudeAuthUrl(session.auth_url);
+      toast.info(
+        "Complete the sign-in in the browser Claude opened. If it didn't open, use the link below.",
+      );
+      for (let i = 0; i < 100; i++) {
+        if (claudeCancelRef.current) {
+          toast.info('Claude sign-in cancelled.');
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 3000));
+        const status = await refreshClaudeStatus();
+        if (status?.connected) {
+          setClaudeAuthUrl(null);
+          toast.success(
+            status.user_email ? `Connected to Claude as ${status.user_email}` : 'Connected to Claude',
+          );
+          return;
+        }
+      }
+      toast.warning('Claude sign-in timed out. Try again.');
+    } catch (err) {
+      toast.error(`Claude sign-in failed: ${err}`);
+    } finally {
+      setClaudeBusy(false);
+    }
+  };
+
+  const cancelClaudeSignIn = () => {
+    claudeCancelRef.current = true;
+  };
+
+  const openClaudeAuthUrl = async () => {
+    if (!claudeAuthUrl) return;
+    try {
+      await invoke('api_open_external', { url: claudeAuthUrl });
+    } catch (err) {
+      toast.error(`Couldn't open the sign-in page: ${err}`);
+    }
+  };
+
+  const signOutClaude = async () => {
+    setClaudeBusy(true);
+    try {
+      await invoke('claude_code_logout');
+      toast.success('Signed out of Claude.');
+    } catch (err) {
+      toast.error(`Claude sign-out failed: ${err}`);
+    } finally {
+      setClaudeBusy(false);
+      await refreshClaudeStatus();
+    }
+  };
+
   useEffect(() => {
     if (modelConfig.provider === 'codex' && codexStatus === null) {
       refreshCodexStatus();
+    }
+    if (modelConfig.provider === 'claude-code' && claudeStatus === null) {
+      refreshClaudeStatus();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [modelConfig.provider]);
@@ -1301,17 +1393,75 @@ export function ModelSettingsModal({
         )}
 
         {modelConfig.provider === 'claude-code' && (
-          <div className="space-y-2 border-t pt-4 text-sm text-muted-foreground">
-            <div>
-              Summaries run through your local Claude Code CLI (the{' '}
-              <code>claude</code> command) using your Claude subscription — no API
-              key, nothing stored by this app.
+          <div className="space-y-3 border-t pt-4">
+            <div className="text-sm text-muted-foreground">
+              Summaries run through your local Claude Code CLI using your Claude
+              subscription — no API key, nothing stored by this app.
             </div>
-            <div>
-              Make sure you&apos;re signed in: run <code>claude</code> once in a
-              terminal. Install with{' '}
-              <code>npm i -g @anthropic-ai/claude-code</code> if it&apos;s missing.
+            <div className="text-sm">
+              {claudeStatus === null ? (
+                'Checking Claude Code CLI...'
+              ) : claudeStatus.connected ? (
+                <span className="text-green-600">
+                  ✓ Connected{claudeStatus.user_email ? ` as ${claudeStatus.user_email}` : ''}
+                  {claudeStatus.subscription_type ? ` (${claudeStatus.subscription_type})` : ''}
+                </span>
+              ) : (
+                <span className="text-amber-600">{claudeStatus.detail ?? 'Not connected.'}</span>
+              )}
             </div>
+            <div className="flex space-x-2">
+              {claudeStatus && !claudeStatus.cli_installed ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => refreshClaudeStatus()}
+                  disabled={claudeBusy}
+                >
+                  Re-check installation
+                </Button>
+              ) : claudeStatus && !claudeStatus.connected ? (
+                <Button type="button" onClick={() => signInClaude()} disabled={claudeBusy}>
+                  {claudeBusy ? 'Waiting for browser sign-in...' : 'Sign in with Claude'}
+                </Button>
+              ) : claudeStatus ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => signOutClaude()}
+                  disabled={claudeBusy}
+                >
+                  Sign out
+                </Button>
+              ) : null}
+              {claudeBusy ? (
+                <Button type="button" variant="outline" onClick={() => cancelClaudeSignIn()}>
+                  Cancel
+                </Button>
+              ) : null}
+              <Button type="button" variant="ghost" onClick={() => refreshClaudeStatus()}>
+                Refresh
+              </Button>
+            </div>
+            {claudeAuthUrl ? (
+              <div className="text-xs text-muted-foreground space-y-1">
+                <div>Browser didn&apos;t open? Use this sign-in link:</div>
+                <div className="flex items-center space-x-2">
+                  <code className="truncate max-w-[280px]">{claudeAuthUrl}</code>
+                  <Button type="button" variant="outline" size="sm" onClick={() => openClaudeAuthUrl()}>
+                    Open
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => navigator.clipboard.writeText(claudeAuthUrl)}
+                  >
+                    Copy
+                  </Button>
+                </div>
+              </div>
+            ) : null}
           </div>
         )}
 

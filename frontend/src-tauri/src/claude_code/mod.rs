@@ -7,11 +7,13 @@
 //! zero-extra-cost summary. Strictly for the signed-in user's own use on this
 //! device (see docs/product-plan/14-claude-code-provider.md §7).
 //!
-//! Scope note: this module ships the execution path (resolve + `claude --print`
-//! + summary entry point). The sign-in status/login Tauri commands + settings
-//! card are a follow-up, pending verification of the `claude` CLI's auth UX
-//! against a real binary (doc 14 §4.3) — guessing it here would risk a defect.
+//! Ships both the execution path (resolve + `claude --print` + summary entry
+//! point) and the auth path: the `auth` module wraps `claude auth
+//! status/login/logout` (verified against the real CLI) and `commands` exposes
+//! the matching Tauri status/login/logout for the settings card.
 
+pub mod auth;
+pub mod commands;
 pub mod exec;
 pub mod process;
 pub mod resolve;

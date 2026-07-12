@@ -66,6 +66,29 @@ fn resolve_via_lookup() -> Option<PathBuf> {
     pick_best_candidate(&candidates)
 }
 
+/// Native `claude` binaries, preferred over the npm `.cmd` shim: the shim runs
+/// `node claude.js` which needs a cmd-resolvable node + sane PATH, both often
+/// absent when the app is launched from a dev shell. The native build and the
+/// npm-vendored platform binary have neither dependency.
+fn native_exe_candidates() -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    if let Some(home) = dirs::home_dir() {
+        out.push(home.join(".local").join("bin").join("claude.exe"));
+    }
+    if let Ok(appdata) = std::env::var("APPDATA") {
+        let base = PathBuf::from(&appdata)
+            .join("npm")
+            .join("node_modules")
+            .join("@anthropic-ai")
+            .join("claude-code")
+            .join("node_modules")
+            .join("@anthropic-ai");
+        out.push(base.join("claude-code-win32-x64").join("claude.exe"));
+        out.push(base.join("claude-code-win32-arm64").join("claude.exe"));
+    }
+    out
+}
+
 fn known_install_paths() -> Vec<PathBuf> {
     let mut out = Vec::new();
     if let Ok(appdata) = std::env::var("APPDATA") {
@@ -95,8 +118,11 @@ pub fn resolve_claude_binary() -> Result<ClaudeInstall, ClaudeCliError> {
             return Ok(cached.clone());
         }
     }
-    let found =
-        resolve_via_lookup().or_else(|| known_install_paths().into_iter().find(|p| p.is_file()));
+    let found = native_exe_candidates()
+        .into_iter()
+        .find(|p| p.is_file())
+        .or_else(resolve_via_lookup)
+        .or_else(|| known_install_paths().into_iter().find(|p| p.is_file()));
     match found {
         Some(path) => {
             let install = ClaudeInstall { version: query_version(&path), path };

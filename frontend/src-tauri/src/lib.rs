@@ -709,6 +709,9 @@ pub fn run() {
             codex::commands::codex_status,
             codex::commands::codex_login_start,
             codex::commands::codex_logout,
+            claude_code::commands::claude_code_status,
+            claude_code::commands::claude_code_login_start,
+            claude_code::commands::claude_code_logout,
             // Google Meet ingest (Meetily-GM)
             gmeet_ingest::gmeet_pairing_info,
             gmeet_ingest::gmeet_clear_resumable,
