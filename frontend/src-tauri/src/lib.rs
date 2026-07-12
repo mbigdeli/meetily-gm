@@ -702,6 +702,9 @@ pub fn run() {
             platform::api_open_external,
             connectors::slack_oauth::flow::api_slack_oauth_connect,
             connectors::slack_oauth::flow::api_slack_oauth_config,
+            connectors::slack_oauth::flow::api_slack_accounts,
+            connectors::slack_oauth::flow::api_slack_set_active,
+            connectors::slack_oauth::flow::api_slack_disconnect_account,
             // Codex CLI commands (Meetily-GM)
             codex::commands::codex_status,
             codex::commands::codex_login_start,

@@ -15,6 +15,7 @@ pub const USER_SCOPES: &str = "channels:read,groups:read,chat:write,search:read"
 pub struct UserAuth {
     pub user_token: String,
     pub team: String,
+    pub team_id: String,
 }
 
 /// Build the Slack authorize URL for a PKCE user-token flow.
@@ -59,7 +60,8 @@ pub fn parse_user_token(body: &str) -> Result<UserAuth, String> {
         .filter(|t| !t.is_empty())
         .ok_or("Slack response missing authed_user.access_token")?;
     let team = v.pointer("/team/name").and_then(|t| t.as_str()).unwrap_or("").to_string();
-    Ok(UserAuth { user_token: token.to_string(), team })
+    let team_id = v.pointer("/team/id").and_then(|t| t.as_str()).unwrap_or("").to_string();
+    Ok(UserAuth { user_token: token.to_string(), team, team_id })
 }
 
 #[cfg(test)]
@@ -82,7 +84,7 @@ mod tests {
         let body = r#"{"ok":true,"authed_user":{"id":"U1","access_token":"xoxp-abc"},"team":{"id":"T1","name":"Acme"}}"#;
         assert_eq!(
             parse_user_token(body).unwrap(),
-            UserAuth { user_token: "xoxp-abc".into(), team: "Acme".into() }
+            UserAuth { user_token: "xoxp-abc".into(), team: "Acme".into(), team_id: "T1".into() }
         );
     }
 

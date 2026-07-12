@@ -12,3 +12,4 @@ pub mod flow;
 pub mod loopback;
 pub mod pkce;
 pub mod protocol;
+pub mod slack_accounts;
