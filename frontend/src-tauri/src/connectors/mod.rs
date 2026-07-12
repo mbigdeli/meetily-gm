@@ -14,4 +14,5 @@ pub mod mrkdwn;
 pub mod secrets;
 pub mod slack;
 pub mod slack_client;
+pub mod slack_oauth;
 pub mod slack_read;

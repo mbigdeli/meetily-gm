@@ -700,6 +700,8 @@ pub fn run() {
             connectors::integration_commands::api_jira_create_issue,
             summary::assistant::api_assistant_chat,
             platform::api_open_external,
+            connectors::slack_oauth::flow::api_slack_oauth_connect,
+            connectors::slack_oauth::flow::api_slack_oauth_config,
             // Codex CLI commands (Meetily-GM)
             codex::commands::codex_status,
             codex::commands::codex_login_start,

@@ -14,23 +14,27 @@ on their device and never sent to us. Reply in the user's language (they may \
 write in Persian/Farsi). Use short markdown. If asked something you cannot do \
 from chat, tell them exactly which button or field in this window to use.";
 
-/// Accurate walkthrough for a Slack **user token** (xoxp — acts as the user:
-/// read, search, send). This is the ground truth the model must follow.
-const SLACK: &str = "TOPIC: Connecting Slack.\n\
-The user wants Miting to post recaps and read their channels as themselves.\n\
-Slack has no one-click login for third-party desktop apps, so they create a \
-tiny personal Slack app once and copy a User OAuth Token (starts with `xoxp-`).\n\
-Exact steps:\n\
-1. Open https://api.slack.com/apps and click 'Create New App' -> 'From scratch'.\n\
-2. Name it 'Miting' and pick their workspace.\n\
-3. Left sidebar -> 'OAuth & Permissions'. Scroll to 'User Token Scopes' (NOT bot \
-scopes) and add: channels:read, groups:read, chat:write, search:read.\n\
-4. Scroll up and click 'Install to Workspace', then 'Allow'.\n\
-5. Copy the 'User OAuth Token' that begins with `xoxp-`.\n\
-6. Paste it into Miting's Slack card and click Connect.\n\
-Tell them the 'Create the Slack app' button in this window opens step 1 \
-pre-filled. If they only need to send (not read), a bot token (xoxb-) or an \
-Incoming Webhook URL also works and is simpler.";
+/// Ground truth for connecting Slack. Primary path is one-click OAuth (PKCE,
+/// no secret); manual user token is the fallback.
+const SLACK: &str = "TOPIC: Connecting Slack (one-click OAuth via PKCE — no \
+secret, no server).\n\
+Recommended one-time setup, then it's just 'Connect with Slack -> Allow':\n\
+1. Host the callback page: on GitHub open the meetily-gm repo -> Settings -> \
+Pages -> 'Deploy from a branch', branch main, folder /docs, Save. After ~1 min \
+this URL should load (it will say 'Missing authorization code' — that's fine): \
+https://mbigdeli.github.io/meetily-gm/oauth/slack-callback.html\n\
+2. Create the app: open https://api.slack.com/apps -> 'Create New App' -> 'From \
+a manifest' -> pick the workspace -> paste the JSON from \
+docs/oauth/slack-app-manifest.json (in the repo).\n\
+3. In the app: 'OAuth & Permissions' -> enable PKCE. Then 'Basic Information' -> \
+copy the Client ID (it's public, safe to paste).\n\
+4. In Miting: open 'One-time setup', paste the Client ID (the callback URL is \
+prefilled), then click 'Connect with Slack' and approve in the browser.\n\
+The full written guide is docs/oauth/SLACK-OAUTH-SETUP.md.\n\
+Fallback (no OAuth setup): under 'Advanced' they can paste a User OAuth Token \
+(starts with xoxp-). To get one: create an app, add User Token Scopes \
+channels:read, groups:read, chat:write, search:read, Install to Workspace, then \
+copy the xoxp- token. A bot token (xoxb-) or Incoming Webhook is send-only.";
 
 /// Accurate walkthrough for a Jira Cloud API token.
 const JIRA: &str = "TOPIC: Connecting Jira.\n\

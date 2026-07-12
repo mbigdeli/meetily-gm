@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Connecting Miting to Slack…</title>
+</head>
+<body style="font-family:system-ui,-apple-system,sans-serif;text-align:center;margin-top:4rem;color:#1a1a1a">
+  <h2>Connecting Miting to Slack…</h2>
+  <p id="msg">One moment — returning you to the app.</p>
+  <!--
+    This page holds NO secret. Slack redirects here (an HTTPS URL, which Slack
+    requires) after the user approves. We read the ?code and ?state, recover the
+    loopback port the desktop app is listening on (encoded as the state prefix
+    "PORT.nonce"), and bounce the browser to http://127.0.0.1:PORT/cb so Miting
+    can complete the PKCE exchange locally. Host this file anywhere over HTTPS
+    (e.g. GitHub Pages) and register its URL as the app's OAuth redirect URL.
+  -->
+  <script>
+    (function () {
+      var p = new URLSearchParams(location.search);
+      var msg = document.getElementById('msg');
+      var err = p.get('error');
+      if (err) { msg.textContent = 'Slack sign-in was cancelled: ' + err; return; }
+      var code = p.get('code');
+      var state = p.get('state') || '';
+      var port = state.split('.')[0];
+      if (!code || !/^[0-9]{1,5}$/.test(port)) {
+        msg.textContent = 'Missing authorization code — please retry from Miting.';
+        return;
+      }
+      var target = 'http://127.0.0.1:' + port + '/cb?code=' +
+        encodeURIComponent(code) + '&state=' + encodeURIComponent(state);
+      location.replace(target);
+    })();
+  </script>
+</body>
+</html>

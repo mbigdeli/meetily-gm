@@ -5,10 +5,15 @@
 /// Callers pass fixed, app-authored URLs only — never raw LLM output.
 #[tauri::command]
 pub fn api_open_external(url: String) -> Result<(), String> {
+    open_external_url(&url)
+}
+
+/// Reusable helper (also used by the Slack OAuth flow): validate scheme + open.
+pub fn open_external_url(url: &str) -> Result<(), String> {
     if !(url.starts_with("https://") || url.starts_with("http://")) {
         return Err("Only http(s) URLs can be opened.".into());
     }
-    open_url(&url)
+    open_url(url)
 }
 
 #[cfg(target_os = "windows")]
