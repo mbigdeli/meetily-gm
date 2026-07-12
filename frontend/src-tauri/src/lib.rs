@@ -55,6 +55,7 @@ pub mod anthropic;
 pub mod groq;
 pub mod openrouter;
 pub mod parakeet_engine;
+pub mod platform;
 pub mod state;
 pub mod summary;
 pub mod tray;
@@ -697,6 +698,8 @@ pub fn run() {
             connectors::integration_commands::api_slack_list_channels,
             connectors::integration_commands::api_slack_search,
             connectors::integration_commands::api_jira_create_issue,
+            summary::assistant::api_assistant_chat,
+            platform::api_open_external,
             // Codex CLI commands (Meetily-GM)
             codex::commands::codex_status,
             codex::commands::codex_login_start,
