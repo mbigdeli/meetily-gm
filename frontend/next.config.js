@@ -17,6 +17,14 @@ const nextConfig = {
   // Add webpack configuration for Tauri
   webpack: (config, { isServer }) => {
     if (!isServer) {
+      // Dev cold-compile of this heavy editor app (BlockNote/Tiptap/ProseMirror,
+      // ~1900 modules on first hit) can outlast webpack's 120s chunk-load wait.
+      // The Tauri WebView opens and requests app/layout.js before the first
+      // on-demand compile finishes -> "ChunkLoadError: ... (timeout: ...)".
+      // Raise the ceiling so the browser waits for the compile instead of erroring.
+      config.output = config.output || {};
+      config.output.chunkLoadTimeout = 600000; // 10 min
+
       config.resolve.fallback = {
         ...config.resolve.fallback,
         fs: false,
