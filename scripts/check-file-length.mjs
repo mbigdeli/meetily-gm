@@ -38,6 +38,7 @@ const GRANDFATHERED = new Set([
   "frontend/src/components/MeetingDetails/TranscriptPanel.tsx",
   "frontend/src/components/GmeetGraceController.tsx",
   "extension/src/shared/gmeetClient.ts",
+  "frontend/src-tauri/src/codex/mod.rs",
 ]);
 
 function changedFiles() {

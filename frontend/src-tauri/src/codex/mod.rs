@@ -12,6 +12,7 @@
 //! verified end-to-end on real meetings.
 
 pub mod commands;
+pub mod login;
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -273,27 +274,6 @@ pub fn read_account_info() -> Option<CodexAccount> {
         account_id,
         method,
     })
-}
-
-/// Spawn a detached `codex login` (it opens the browser and runs its own
-/// localhost callback server). Returns the child pid.
-pub fn spawn_login_detached(install: &CodexInstall) -> Result<u32, CodexCliError> {
-    let mut cmd = Command::new(&install.path);
-    cmd.arg("login")
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        const DETACHED_PROCESS: u32 = 0x0000_0008;
-        cmd.creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS);
-    }
-    let child = cmd
-        .spawn()
-        .map_err(|e| CodexCliError::Spawn(e.to_string()))?;
-    Ok(child.id())
 }
 
 /// Run `codex logout`; returns whether it exited 0.

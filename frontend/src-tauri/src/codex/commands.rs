@@ -2,9 +2,8 @@
 
 use serde::Serialize;
 
-use super::{
-    logout, read_account_info, resolve_codex_binary, spawn_login_detached, CodexCliError,
-};
+use super::login::{spawn_login_capture, LoginSession};
+use super::{logout, read_account_info, resolve_codex_binary, CodexCliError};
 
 /// Status payload for the settings UI.
 #[derive(Debug, Clone, Serialize)]
@@ -63,17 +62,23 @@ pub async fn codex_status() -> Result<CodexStatus, String> {
         .map_err(|e| e.to_string())
 }
 
-/// Launch the CLI's own browser sign-in (`codex login` opens the browser and
-/// runs its own localhost callback server). Frontend polls `codex_status`
-/// until `connected` flips.
+/// Launch the CLI's browser sign-in. `codex login` opens the browser and runs
+/// its own localhost callback server; we also capture the auth URL it prints
+/// and open it ourselves, so sign-in is not left stranded if codex's built-in
+/// auto-open silently fails. The URL is returned so the UI can show a manual
+/// fallback. Frontend polls `codex_status` until `connected` flips.
 #[tauri::command]
-pub async fn codex_login_start() -> Result<u32, String> {
+pub async fn codex_login_start() -> Result<LoginSession, String> {
     tokio::task::spawn_blocking(|| {
         let install = resolve_codex_binary().map_err(|e| match e {
             CodexCliError::NotInstalled => INSTALL_HINT.to_string(),
             other => other.to_string(),
         })?;
-        spawn_login_detached(&install).map_err(|e| e.to_string())
+        let session = spawn_login_capture(&install)?;
+        if let Some(url) = &session.auth_url {
+            let _ = crate::platform::api_open_external(url.clone());
+        }
+        Ok(session)
     })
     .await
     .map_err(|e| e.to_string())?
