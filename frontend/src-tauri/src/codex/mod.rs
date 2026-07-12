@@ -117,6 +117,7 @@ fn query_version(path: &Path) -> Option<String> {
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
     creation_no_window(&mut cmd);
+    crate::platform::ensure_node_on_path(&mut cmd);
     let (code, stdout, _stderr) = run_to_completion(cmd, STATUS_TIMEOUT_SECS, None).ok()?;
     if code != 0 {
         return None;
@@ -138,6 +139,7 @@ fn resolve_via_lookup() -> Option<PathBuf> {
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
     creation_no_window(&mut cmd);
+    crate::platform::ensure_node_on_path(&mut cmd);
     let (code, stdout, _stderr) = run_to_completion(cmd, STATUS_TIMEOUT_SECS, None).ok()?;
     if code != 0 {
         return None;
@@ -218,6 +220,7 @@ pub fn login_status(install: &CodexInstall) -> Result<bool, CodexCliError> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     creation_no_window(&mut cmd);
+    crate::platform::ensure_node_on_path(&mut cmd);
     let (code, _stdout, _stderr) = run_to_completion(cmd, STATUS_TIMEOUT_SECS, None)?;
     Ok(code == 0)
 }
@@ -284,6 +287,7 @@ pub fn logout(install: &CodexInstall) -> Result<bool, CodexCliError> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     creation_no_window(&mut cmd);
+    crate::platform::ensure_node_on_path(&mut cmd);
     let (code, _stdout, _stderr) = run_to_completion(cmd, STATUS_TIMEOUT_SECS, None)?;
     Ok(code == 0)
 }
@@ -414,6 +418,7 @@ fn run_exec_once(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     creation_no_window(&mut cmd);
+    crate::platform::ensure_node_on_path(&mut cmd);
 
     let mut child = cmd
         .spawn()

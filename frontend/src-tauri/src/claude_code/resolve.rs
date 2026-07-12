@@ -37,6 +37,7 @@ fn query_version(path: &Path) -> Option<String> {
     let mut cmd = Command::new(path);
     cmd.arg("--version").stdin(Stdio::null());
     creation_no_window(&mut cmd);
+    crate::platform::ensure_node_on_path(&mut cmd);
     let (code, stdout, _) = run_to_completion(cmd, STATUS_TIMEOUT_SECS, None).ok()?;
     if code != 0 {
         return None;
@@ -50,6 +51,7 @@ fn resolve_via_lookup() -> Option<PathBuf> {
     let mut cmd = Command::new(lookup);
     cmd.arg("claude");
     creation_no_window(&mut cmd);
+    crate::platform::ensure_node_on_path(&mut cmd);
     let (code, stdout, _) = run_to_completion(cmd, STATUS_TIMEOUT_SECS, None).ok()?;
     if code != 0 {
         return None;
