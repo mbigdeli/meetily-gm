@@ -416,10 +416,22 @@ fn tail(s: &str, limit: usize) -> String {
 
 fn stderr_signals_logged_out(stderr: &str) -> bool {
     let lower = stderr.to_ascii_lowercase();
+    // No bare "401": session ids / request ids are hex-ish strings that can
+    // contain it, which mislabeled unrelated failures as auth errors.
     lower.contains("not logged in")
         || lower.contains("please run `codex login`")
-        || lower.contains("401")
+        || lower.contains("\"status\":401")
+        || lower.contains("401 unauthorized")
         || lower.contains("unauthorized")
+}
+
+/// The backend rejects models newer than the installed CLI with a 400 that
+/// tells the user to upgrade — surface that as its own actionable error
+/// instead of a generic (or worse, auth-shaped) failure.
+fn stderr_signals_upgrade_required(stderr: &str) -> bool {
+    stderr
+        .to_ascii_lowercase()
+        .contains("requires a newer version of codex")
 }
 
 /// Build the `codex exec` argument list (pure; unit-tested).
@@ -508,6 +520,13 @@ pub fn exec_blocking(
     }
 
     if code != 0 {
+        if stderr_signals_upgrade_required(&stderr) {
+            return Err(CodexCliError::BadOutput(
+                "Codex CLI is too old for the model configured in ~/.codex/config.toml. \
+                 Run `npm i -g @openai/codex@latest` (or remove the `model =` line), then retry."
+                    .into(),
+            ));
+        }
         if stderr_signals_logged_out(&stderr) {
             return Err(CodexCliError::NotLoggedIn);
         }
@@ -671,6 +690,24 @@ mod tests {
         let shim = dir.path().join("codex.cmd");
         std::fs::write(&shim, "@echo off\r\n").unwrap();
         assert_eq!(vendored_native_exe(&shim), None);
+    }
+
+    #[test]
+    fn logged_out_heuristic_ignores_401_inside_ids() {
+        // Real failure seen live: model-too-new 400 + a session id that could
+        // contain "401" — must NOT be classified as an auth failure.
+        let stderr = r#"session id: 019f5401-3833-7241-a07e-b932b2a9bf6f
+ERROR: {"type":"error","status":400,"error":{"type":"invalid_request_error","message":"The 'gpt-5.6-sol' model requires a newer version of Codex. Please upgrade to the latest app or CLI and try again."}}"#;
+        assert!(!stderr_signals_logged_out(stderr));
+        assert!(stderr_signals_upgrade_required(stderr));
+    }
+
+    #[test]
+    fn logged_out_heuristic_still_catches_real_auth_failures() {
+        assert!(stderr_signals_logged_out("Not logged in"));
+        assert!(stderr_signals_logged_out(r#"{"status":401,"error":"x"}"#));
+        assert!(stderr_signals_logged_out("HTTP 401 Unauthorized"));
+        assert!(!stderr_signals_upgrade_required("Not logged in"));
     }
 
     #[test]
