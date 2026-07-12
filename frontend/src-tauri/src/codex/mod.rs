@@ -154,6 +154,43 @@ fn resolve_via_lookup() -> Option<PathBuf> {
     pick_best_candidate(&candidates)
 }
 
+/// Upgrade an npm `.cmd`/`.bat` shim to the native binary it ultimately runs.
+///
+/// The shim chain (`codex.cmd` → cmd.exe → `node codex.js` → native exe)
+/// requires a cmd-resolvable `node` and a sane PATH — both can be absent when
+/// the app is launched from a POSIX-style shell, and cmd.exe mishandles the
+/// huge PATH a cargo dev environment injects. The npm package vendors the real
+/// binary at `node_modules/@openai/codex/node_modules/@openai/<platform-pkg>/
+/// vendor/<triple>/bin/codex(.exe)`; spawning it directly needs no shell, no
+/// node, and no PATH at all.
+fn vendored_native_exe(shim: &Path) -> Option<PathBuf> {
+    match shim.extension().and_then(|e| e.to_str()) {
+        Some(ext) if ext.eq_ignore_ascii_case("cmd") || ext.eq_ignore_ascii_case("bat") => {}
+        _ => return None, // already a native binary (or not a Windows shim)
+    }
+    let scoped = shim
+        .parent()?
+        .join("node_modules")
+        .join("@openai")
+        .join("codex")
+        .join("node_modules")
+        .join("@openai");
+    let exe_name = if cfg!(windows) { "codex.exe" } else { "codex" };
+    for pkg in std::fs::read_dir(&scoped).ok()?.flatten() {
+        let vendor = pkg.path().join("vendor");
+        let Ok(triples) = std::fs::read_dir(&vendor) else {
+            continue;
+        };
+        for triple in triples.flatten() {
+            let exe = triple.path().join("bin").join(exe_name);
+            if exe.is_file() {
+                return Some(exe);
+            }
+        }
+    }
+    None
+}
+
 fn known_install_paths() -> Vec<PathBuf> {
     let mut out = Vec::new();
     if let Ok(appdata) = std::env::var("APPDATA") {
@@ -196,6 +233,8 @@ pub fn resolve_codex_binary() -> Result<CodexInstall, CodexCliError> {
 
     match found {
         Some(path) => {
+            // Prefer the vendored native exe over the node-dependent shim.
+            let path = vendored_native_exe(&path).unwrap_or(path);
             let install = CodexInstall {
                 version: query_version(&path),
                 path,
@@ -603,6 +642,35 @@ mod tests {
             pick_best_candidate(&candidates),
             Some(PathBuf::from("C:\\b\\codex.exe"))
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn vendored_native_exe_found_from_cmd_shim() {
+        let dir = tempfile::tempdir().unwrap();
+        let shim = dir.path().join("codex.cmd");
+        std::fs::write(&shim, "@echo off\r\n").unwrap();
+        let bin = dir.path().join(
+            r"node_modules\@openai\codex\node_modules\@openai\codex-win32-x64\vendor\x86_64-pc-windows-msvc\bin",
+        );
+        std::fs::create_dir_all(&bin).unwrap();
+        let exe = bin.join("codex.exe");
+        std::fs::write(&exe, "MZ").unwrap();
+        assert_eq!(vendored_native_exe(&shim), Some(exe));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn vendored_native_exe_passthrough_cases() {
+        let dir = tempfile::tempdir().unwrap();
+        // Already-native binaries are never rewritten.
+        let exe = dir.path().join("codex.exe");
+        std::fs::write(&exe, "MZ").unwrap();
+        assert_eq!(vendored_native_exe(&exe), None);
+        // A shim with no vendored package next to it stays a shim.
+        let shim = dir.path().join("codex.cmd");
+        std::fs::write(&shim, "@echo off\r\n").unwrap();
+        assert_eq!(vendored_native_exe(&shim), None);
     }
 
     #[test]

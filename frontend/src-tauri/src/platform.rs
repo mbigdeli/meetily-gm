@@ -58,7 +58,11 @@ fn open_url(url: &str) -> Result<(), String> {
 pub fn ensure_node_on_path(cmd: &mut std::process::Command) {
     #[cfg(windows)]
     {
-        if let Some(dir) = node_install_dir() {
+        let dir = node_install_dir();
+        if dir.is_none() {
+            log::warn!("ensure_node_on_path: no Node.js install dir found; npm shims may fail");
+        }
+        if let Some(dir) = dir {
             let mut path = std::ffi::OsString::from(dir);
             if let Some(existing) = std::env::var_os("PATH") {
                 path.push(";");
