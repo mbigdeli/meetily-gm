@@ -13,6 +13,7 @@
 
 pub mod commands;
 pub mod login;
+pub mod models;
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -265,7 +266,7 @@ pub fn login_status(install: &CodexInstall) -> Result<bool, CodexCliError> {
 }
 
 /// Directory codex stores its state in (`CODEX_HOME` or `~/.codex`).
-fn codex_home() -> Option<PathBuf> {
+pub(crate) fn codex_home() -> Option<PathBuf> {
     if let Some(home) = std::env::var_os("CODEX_HOME") {
         return Some(PathBuf::from(home));
     }
@@ -434,6 +435,14 @@ fn stderr_signals_upgrade_required(stderr: &str) -> bool {
         .contains("requires a newer version of codex")
 }
 
+/// Retired/unknown model ids get a 400 like "The 'x' model is not supported
+/// when using Codex with a ChatGPT account." — point the user at the model
+/// picker instead of surfacing a raw API error.
+fn stderr_signals_model_not_supported(stderr: &str) -> bool {
+    let lower = stderr.to_ascii_lowercase();
+    lower.contains("model is not supported")
+}
+
 /// Normalize a stored model choice into a CLI value: `None` for the sentinel
 /// "default"/empty (let the CLI/`config.toml` decide), else the model name.
 pub(crate) fn model_flag(model: &str) -> Option<String> {
@@ -546,6 +555,14 @@ pub fn exec_blocking(
                     .into(),
             ));
         }
+        if stderr_signals_model_not_supported(&stderr) {
+            return Err(CodexCliError::BadOutput(
+                "The selected model is not available on this ChatGPT account (it may be \
+                 retired). Open Settings → Summary model, hit 'Refresh models', and pick a \
+                 current one."
+                    .into(),
+            ));
+        }
         if stderr_signals_logged_out(&stderr) {
             return Err(CodexCliError::NotLoggedIn);
         }
@@ -602,7 +619,13 @@ pub async fn generate_with_codex(
     let model = model_flag(model);
 
     let result = tokio::task::spawn_blocking(move || {
-        exec_blocking(&install, &prompt, &workdir, model.as_deref(), token.as_ref())
+        exec_blocking(
+            &install,
+            &prompt,
+            &workdir,
+            model.as_deref(),
+            token.as_ref(),
+        )
     })
     .await
     .map_err(|e| format!("codex task join error: {e}"))?;
@@ -667,7 +690,9 @@ mod tests {
         ];
         assert_eq!(
             pick_best_candidate(&candidates),
-            Some(PathBuf::from("C:\\Users\\x\\AppData\\Roaming\\npm\\codex.cmd"))
+            Some(PathBuf::from(
+                "C:\\Users\\x\\AppData\\Roaming\\npm\\codex.cmd"
+            ))
         );
     }
 
@@ -732,9 +757,22 @@ ERROR: {"type":"error","status":400,"error":{"type":"invalid_request_error","mes
     }
 
     #[test]
+    fn retired_model_400_is_its_own_signal() {
+        // Real 400 observed live for an invalid/retired `-m` value.
+        let stderr = r#"ERROR: {"type":"error","status":400,"error":{"type":"invalid_request_error","message":"The 'gpt-4o' model is not supported when using Codex with a ChatGPT account."}}"#;
+        assert!(stderr_signals_model_not_supported(stderr));
+        assert!(!stderr_signals_upgrade_required(stderr));
+        assert!(!stderr_signals_logged_out(stderr));
+        assert!(!stderr_signals_model_not_supported("some other 400"));
+    }
+
+    #[test]
     fn build_exec_args_shape() {
         let args = build_exec_args(Path::new("C:\\w"), true, None);
-        let strs: Vec<String> = args.iter().map(|a| a.to_string_lossy().to_string()).collect();
+        let strs: Vec<String> = args
+            .iter()
+            .map(|a| a.to_string_lossy().to_string())
+            .collect();
         assert_eq!(strs[0], "exec");
         assert!(strs.contains(&"--skip-git-repo-check".to_string()));
         assert!(strs.contains(&"--ephemeral".to_string()));

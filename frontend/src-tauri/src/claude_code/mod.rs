@@ -15,6 +15,7 @@
 pub mod auth;
 pub mod commands;
 pub mod exec;
+pub mod models;
 pub mod process;
 pub mod resolve;
 
