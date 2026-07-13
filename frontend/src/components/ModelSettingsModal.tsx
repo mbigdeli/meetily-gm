@@ -29,6 +29,8 @@ import {
 } from '@/components/ui/command';
 import { cn, isOllamaNotInstalledError } from '@/lib/utils';
 import { toast } from 'sonner';
+import { CliModelsSection } from './CliModelsSection';
+import { CliModelEntry, CliProvider, listCliModels } from '@/services/cliModelService';
 
 export interface ModelConfig {
   provider: 'ollama' | 'groq' | 'claude' | 'openai' | 'openrouter' | 'builtin-ai' | 'custom-openai' | 'codex' | 'claude-code';
@@ -231,6 +233,38 @@ export function ModelSettingsModal({
   const [codexAuthUrl, setCodexAuthUrl] = useState<string | null>(null);
   const codexCancelRef = useRef(false);
 
+  // Validated model lists for the CLI providers. null = not loaded yet;
+  // loads are cache reads except the explicit "Refresh models" action.
+  const [cliModels, setCliModels] = useState<Record<CliProvider, CliModelEntry[] | null>>({
+    codex: null,
+    'claude-code': null,
+  });
+  const [cliModelsLoading, setCliModelsLoading] = useState<Record<CliProvider, boolean>>({
+    codex: false,
+    'claude-code': false,
+  });
+
+  const loadCliModels = async (provider: CliProvider, refresh: boolean) => {
+    setCliModelsLoading((prev) => ({ ...prev, [provider]: true }));
+    try {
+      const list = await listCliModels(provider, refresh);
+      setCliModels((prev) => ({ ...prev, [provider]: list.models }));
+      if (refresh) {
+        const n = list.models.filter((m) => m.id !== 'default').length;
+        toast.success(
+          n > 0
+            ? `${n} model${n === 1 ? '' : 's'} verified and saved.`
+            : 'No models passed verification — use the manual entry below.',
+        );
+      }
+    } catch (err) {
+      if (refresh) toast.error(`Model refresh failed: ${err}`);
+      else console.error(`${provider} model list failed:`, err);
+    } finally {
+      setCliModelsLoading((prev) => ({ ...prev, [provider]: false }));
+    }
+  };
+
   const refreshCodexStatus = async (): Promise<CodexStatus | null> => {
     try {
       const status = (await invoke('codex_status')) as CodexStatus;
@@ -408,6 +442,12 @@ export function ModelSettingsModal({
     if (modelConfig.provider === 'claude-code' && claudeStatus === null) {
       refreshClaudeStatus();
     }
+    if (
+      (modelConfig.provider === 'codex' || modelConfig.provider === 'claude-code') &&
+      cliModels[modelConfig.provider] === null
+    ) {
+      loadCliModels(modelConfig.provider, false); // cache read, no CLI calls
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [modelConfig.provider]);
 
@@ -427,11 +467,10 @@ export function ModelSettingsModal({
     openrouter: openRouterModels.map((m) => m.id),
     'builtin-ai': builtinAiModels.map((m) => m.name),
     'custom-openai': customOpenAIModel ? [customOpenAIModel] : [], // User specifies model manually
-    // 'default' = let the CLI/config choose. Codex has no model-list API, so
-    // this is a short curated set (gpt-5.6-sol verified); Claude uses stable
-    // aliases that always track the latest of each family.
-    codex: ['default', 'gpt-5.6-sol'],
-    'claude-code': ['default', 'opus', 'sonnet', 'haiku'],
+    // Dynamic, backend-verified lists (see CliModelsSection / model_catalog).
+    // 'default' is always present = let the CLI/its config choose.
+    codex: cliModels.codex?.map((m) => m.id) ?? ['default'],
+    'claude-code': cliModels['claude-code']?.map((m) => m.id) ?? ['default'],
   };
 
   const requiresApiKey =
@@ -1109,7 +1148,9 @@ export function ModelSettingsModal({
                       {(modelConfig.provider === 'openrouter' && isLoadingOpenRouter) ||
                        (modelConfig.provider === 'openai' && isLoadingOpenAI) ||
                        (modelConfig.provider === 'claude' && isLoadingClaude) ||
-                       (modelConfig.provider === 'groq' && isLoadingGroq) ? (
+                       (modelConfig.provider === 'groq' && isLoadingGroq) ||
+                       (modelConfig.provider === 'codex' && cliModelsLoading.codex) ||
+                       (modelConfig.provider === 'claude-code' && cliModelsLoading['claude-code']) ? (
                         <div className="py-6 text-center text-sm text-muted-foreground">
                           <RefreshCw className="mx-auto h-4 w-4 animate-spin mb-2" />
                           Loading models...
@@ -1373,6 +1414,17 @@ export function ModelSettingsModal({
                 Refresh
               </Button>
             </div>
+            <CliModelsSection
+              provider="codex"
+              connected={!!codexStatus?.connected}
+              models={cliModels.codex}
+              loading={cliModelsLoading.codex}
+              onRefresh={() => loadCliModels('codex', true)}
+              onValidated={(id) => {
+                setModelConfig((prev: ModelConfig) => ({ ...prev, model: id }));
+                loadCliModels('codex', false);
+              }}
+            />
             {codexAuthUrl ? (
               <div className="text-xs text-muted-foreground space-y-1">
                 <div>Browser didn&apos;t open? Use this sign-in link:</div>
@@ -1446,6 +1498,17 @@ export function ModelSettingsModal({
                 Refresh
               </Button>
             </div>
+            <CliModelsSection
+              provider="claude-code"
+              connected={!!claudeStatus?.connected}
+              models={cliModels['claude-code']}
+              loading={cliModelsLoading['claude-code']}
+              onRefresh={() => loadCliModels('claude-code', true)}
+              onValidated={(id) => {
+                setModelConfig((prev: ModelConfig) => ({ ...prev, model: id }));
+                loadCliModels('claude-code', false);
+              }}
+            />
             {claudeAuthUrl ? (
               <div className="text-xs text-muted-foreground space-y-1">
                 <div>Browser didn&apos;t open? Use this sign-in link:</div>
