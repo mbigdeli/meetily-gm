@@ -370,8 +370,8 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     openai: ['gpt-4', 'gpt-4-turbo', 'gpt-3.5-turbo'],
     'builtin-ai': [],
     'custom-openai': [],
-    codex: ['default'],
-    'claude-code': ['default'],
+    codex: ['default', 'gpt-5.6-sol'],
+    'claude-code': ['default', 'opus', 'sonnet', 'haiku'],
   };
 
   // Toggle confidence indicator with localStorage persistence

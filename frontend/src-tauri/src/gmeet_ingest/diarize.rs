@@ -295,9 +295,16 @@ async fn diarize_chunk(
                 "{base_user}\n\nYour previous reply was not valid JSON matching the shape. Error: {last_err}. Return STRICT JSON ONLY."
             )
         };
-        let raw =
-            crate::codex::generate_with_codex(app_data_dir, DIARIZE_SYSTEM_PROMPT, &user_prompt, None)
-                .await?;
+        // Diarization uses codex's default/configured model (not the
+        // user-selected summary model).
+        let raw = crate::codex::generate_with_codex(
+            app_data_dir,
+            "default",
+            DIARIZE_SYSTEM_PROMPT,
+            &user_prompt,
+            None,
+        )
+        .await?;
 
         match parse_json_lenient(&raw) {
             Ok(v) => match v.get("final_segments").and_then(|s| s.as_array()) {

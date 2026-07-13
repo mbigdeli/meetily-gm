@@ -58,8 +58,16 @@ pub struct ClaudeInstall {
 /// Async summary entry point used by the LLM client. Claude Code has a single
 /// prompt channel, so the system prompt is inlined ahead of the user prompt.
 /// Runs in `spawn_blocking`; honors the cancellation token (kills the child).
+/// Normalize a stored model choice into a CLI `--model` value: `None` for the
+/// sentinel "default"/empty, else the alias/name (e.g. `opus`, `sonnet`).
+pub(crate) fn model_flag(model: &str) -> Option<String> {
+    let m = model.trim();
+    (!m.is_empty() && !m.eq_ignore_ascii_case("default")).then(|| m.to_string())
+}
+
 pub async fn generate_with_claude_code(
     _app_data_dir: &Path,
+    model: &str,
     system_prompt: &str,
     user_prompt: &str,
     cancellation_token: Option<&CancellationToken>,
@@ -74,9 +82,12 @@ pub async fn generate_with_claude_code(
 
     let prompt = format!("{system_prompt}\n\n{user_prompt}");
     let token = cancellation_token.cloned();
+    let model = model_flag(model);
 
-    tokio::task::spawn_blocking(move || exec::exec_blocking(&install, &prompt, token.as_ref()))
-        .await
+    tokio::task::spawn_blocking(move || {
+        exec::exec_blocking(&install, &prompt, model.as_deref(), token.as_ref())
+    })
+    .await
         .map_err(|e| format!("claude task join error: {e}"))?
         .map_err(|e| match e {
             ClaudeCliError::NotLoggedIn => {

@@ -434,8 +434,20 @@ fn stderr_signals_upgrade_required(stderr: &str) -> bool {
         .contains("requires a newer version of codex")
 }
 
-/// Build the `codex exec` argument list (pure; unit-tested).
-fn build_exec_args(workdir: &Path, include_optional: bool) -> Vec<std::ffi::OsString> {
+/// Normalize a stored model choice into a CLI value: `None` for the sentinel
+/// "default"/empty (let the CLI/`config.toml` decide), else the model name.
+pub(crate) fn model_flag(model: &str) -> Option<String> {
+    let m = model.trim();
+    (!m.is_empty() && !m.eq_ignore_ascii_case("default")).then(|| m.to_string())
+}
+
+/// Build the `codex exec` argument list (pure; unit-tested). `model` is passed
+/// via `-m` when set; `None` lets codex use its configured default.
+fn build_exec_args(
+    workdir: &Path,
+    include_optional: bool,
+    model: Option<&str>,
+) -> Vec<std::ffi::OsString> {
     let mut args: Vec<std::ffi::OsString> = vec![
         "exec".into(),
         "--skip-git-repo-check".into(),
@@ -451,6 +463,10 @@ fn build_exec_args(workdir: &Path, include_optional: bool) -> Vec<std::ffi::OsSt
     if include_optional {
         args.push("--ephemeral".into());
     }
+    if let Some(m) = model {
+        args.push("-m".into());
+        args.push(m.into());
+    }
     // Read the full prompt from stdin (immune to Windows' 32K argument limit).
     args.push("-".into());
     args
@@ -461,10 +477,11 @@ fn run_exec_once(
     prompt: &str,
     workdir: &Path,
     include_optional: bool,
+    model: Option<&str>,
     cancel: Option<&CancellationToken>,
 ) -> Result<(i32, String, String), CodexCliError> {
     let mut cmd = Command::new(&install.path);
-    cmd.args(build_exec_args(workdir, include_optional))
+    cmd.args(build_exec_args(workdir, include_optional, model))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -506,17 +523,19 @@ pub fn exec_blocking(
     install: &CodexInstall,
     prompt: &str,
     workdir: &Path,
+    model: Option<&str>,
     cancel: Option<&CancellationToken>,
 ) -> Result<String, CodexCliError> {
     let last_message_path = workdir.join("codex_last_message.txt");
     let _ = std::fs::remove_file(&last_message_path);
 
-    let (mut code, mut stdout, mut stderr) = run_exec_once(install, prompt, workdir, true, cancel)?;
+    let (mut code, mut stdout, mut stderr) =
+        run_exec_once(install, prompt, workdir, true, model, cancel)?;
 
     // Older CLI versions may not know --ephemeral; retry once without it.
     if code == 2 && stderr.to_ascii_lowercase().contains("unexpected argument") {
         log::warn!("codex exec rejected optional flags; retrying without them");
-        (code, stdout, stderr) = run_exec_once(install, prompt, workdir, false, cancel)?;
+        (code, stdout, stderr) = run_exec_once(install, prompt, workdir, false, model, cancel)?;
     }
 
     if code != 0 {
@@ -558,6 +577,7 @@ pub fn exec_blocking(
 /// token (kills the codex child process on cancel).
 pub async fn generate_with_codex(
     app_data_dir: &Path,
+    model: &str,
     system_prompt: &str,
     user_prompt: &str,
     cancellation_token: Option<&CancellationToken>,
@@ -579,9 +599,10 @@ pub async fn generate_with_codex(
 
     let prompt = format!("{system_prompt}\n\n{user_prompt}");
     let token = cancellation_token.cloned();
+    let model = model_flag(model);
 
     let result = tokio::task::spawn_blocking(move || {
-        exec_blocking(&install, &prompt, &workdir, token.as_ref())
+        exec_blocking(&install, &prompt, &workdir, model.as_deref(), token.as_ref())
     })
     .await
     .map_err(|e| format!("codex task join error: {e}"))?;
@@ -712,18 +733,38 @@ ERROR: {"type":"error","status":400,"error":{"type":"invalid_request_error","mes
 
     #[test]
     fn build_exec_args_shape() {
-        let args = build_exec_args(Path::new("C:\\w"), true);
+        let args = build_exec_args(Path::new("C:\\w"), true, None);
         let strs: Vec<String> = args.iter().map(|a| a.to_string_lossy().to_string()).collect();
         assert_eq!(strs[0], "exec");
         assert!(strs.contains(&"--skip-git-repo-check".to_string()));
         assert!(strs.contains(&"--ephemeral".to_string()));
         assert_eq!(strs.last().unwrap(), "-");
+        assert!(!strs.contains(&"-m".to_string()), "no model flag when None");
 
-        let without: Vec<String> = build_exec_args(Path::new("C:\\w"), false)
+        let without: Vec<String> = build_exec_args(Path::new("C:\\w"), false, None)
             .iter()
             .map(|a| a.to_string_lossy().to_string())
             .collect();
         assert!(!without.contains(&"--ephemeral".to_string()));
+    }
+
+    #[test]
+    fn build_exec_args_passes_model_before_stdin() {
+        let strs: Vec<String> = build_exec_args(Path::new("C:\\w"), true, Some("gpt-5.6-sol"))
+            .iter()
+            .map(|a| a.to_string_lossy().to_string())
+            .collect();
+        let i = strs.iter().position(|s| s == "-m").expect("has -m");
+        assert_eq!(strs[i + 1], "gpt-5.6-sol");
+        assert_eq!(strs.last().unwrap(), "-", "stdin marker stays last");
+    }
+
+    #[test]
+    fn model_flag_treats_default_and_blank_as_none() {
+        assert_eq!(model_flag("default"), None);
+        assert_eq!(model_flag("  Default "), None);
+        assert_eq!(model_flag(""), None);
+        assert_eq!(model_flag("gpt-5.6-sol").as_deref(), Some("gpt-5.6-sol"));
     }
 
     #[test]
@@ -762,7 +803,7 @@ ERROR: {"type":"error","status":400,"error":{"type":"invalid_request_error","mes
 
         let _guard = EnvGuard::set(CODEX_EXE_ENV, &fake);
         let install = resolve_codex_binary().expect("fake codex resolves");
-        let out = exec_blocking(&install, "hello", &workdir, None).expect("exec ok");
+        let out = exec_blocking(&install, "hello", &workdir, None, None).expect("exec ok");
         assert_eq!(out, "fake summary");
     }
 }

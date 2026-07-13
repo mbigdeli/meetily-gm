@@ -427,8 +427,11 @@ export function ModelSettingsModal({
     openrouter: openRouterModels.map((m) => m.id),
     'builtin-ai': builtinAiModels.map((m) => m.name),
     'custom-openai': customOpenAIModel ? [customOpenAIModel] : [], // User specifies model manually
-    codex: ['default'], // Model is chosen by the Codex CLI itself
-    'claude-code': ['default'], // Model is chosen by the Claude CLI itself
+    // 'default' = let the CLI/config choose. Codex has no model-list API, so
+    // this is a short curated set (gpt-5.6-sol verified); Claude uses stable
+    // aliases that always track the latest of each family.
+    codex: ['default', 'gpt-5.6-sol'],
+    'claude-code': ['default', 'opus', 'sonnet', 'haiku'],
   };
 
   const requiresApiKey =
@@ -1084,7 +1087,7 @@ export function ModelSettingsModal({
               </SelectContent>
             </Select>
 
-            {modelConfig.provider !== 'builtin-ai' && modelConfig.provider !== 'custom-openai' && modelConfig.provider !== 'codex' && (
+            {modelConfig.provider !== 'builtin-ai' && modelConfig.provider !== 'custom-openai' && (
               <Popover open={modelComboboxOpen} onOpenChange={setModelComboboxOpen} modal={true}>
                 <PopoverTrigger asChild>
                   <Button

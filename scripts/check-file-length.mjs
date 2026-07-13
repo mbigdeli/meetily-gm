@@ -43,6 +43,7 @@ const GRANDFATHERED = new Set([
   "frontend/src/contexts/ConfigContext.tsx",
   "frontend/src-tauri/src/lib.rs",
   "frontend/src-tauri/src/claude_code/resolve.rs",
+  "frontend/src-tauri/src/summary/llm_client.rs",
 ]);
 
 function changedFiles() {
