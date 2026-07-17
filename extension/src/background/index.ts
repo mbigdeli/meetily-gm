@@ -24,7 +24,12 @@ import {
 } from "../shared/storage.js";
 import { STORAGE_KEYS } from "../shared/storageKeys.js";
 import { DEFAULT_SETTINGS } from "../shared/types.js";
-import { getActiveCapture, setActiveCapture, type ActiveCapture } from "./activeCaptureStorage.js";
+import {
+  getActiveCapture,
+  resolveSessionId,
+  setActiveCapture,
+  type ActiveCapture,
+} from "./activeCaptureStorage.js";
 import { setBadgeRecording } from "./badge.js";
 
 const HEALTH_ALARM = "mcs-local-service-health";
@@ -704,7 +709,10 @@ async function handleMessage(raw: unknown, sender: chrome.runtime.MessageSender)
         return { ok: false, error: "invalid_payload" };
       }
       const { sessionId, body } = parsed.data.payload;
-      const result = await gmeetSendCaption(sessionId, body);
+      // Storage-backed id wins: the content script's copy can be stale after a
+      // restart mid-meeting (its captions would be orphaned server-side).
+      const captionSessionId = resolveSessionId(await getActiveCapture(), sessionId);
+      const result = await gmeetSendCaption(captionSessionId, body);
       if (!result.ok) {
         return { ok: false, error: result.error, detail: result };
       }
@@ -718,7 +726,8 @@ async function handleMessage(raw: unknown, sender: chrome.runtime.MessageSender)
         return { ok: false, error: "invalid_payload" };
       }
       const { sessionId, body } = parsed.data.payload;
-      const result = await gmeetSendParticipants(sessionId, body);
+      const participantSessionId = resolveSessionId(await getActiveCapture(), sessionId);
+      const result = await gmeetSendParticipants(participantSessionId, body);
       if (!result.ok) {
         return { ok: false, error: result.error, detail: result };
       }

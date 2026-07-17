@@ -74,6 +74,10 @@ pub struct GmeetResumeState {
 struct ResumeInner {
     /// meeting_code -> resumable session_id (present only while paused).
     resumable: HashMap<String, String>,
+    /// meeting_code -> actively-recording session_id (until pause/finalize).
+    /// Lets a restarted extension re-adopt the live session instead of forking
+    /// a second one (which orphaned its captions — the captions=0 bug).
+    active: HashMap<String, String>,
     /// session_id -> meeting_code (so a finalize-by-session-id can find the code).
     session_code: HashMap<String, String>,
 }
@@ -86,6 +90,8 @@ impl GmeetResumeState {
         g.session_code
             .insert(session_id.to_string(), meeting_code.to_string());
         g.resumable.remove(meeting_code);
+        g.active
+            .insert(meeting_code.to_string(), session_id.to_string());
     }
 
     /// A session paused: it can be resumed by the same meeting code until it is
@@ -93,17 +99,32 @@ impl GmeetResumeState {
     fn on_pause(&self, session_id: &str) {
         let mut g = self.inner.lock().expect("gmeet resume state poisoned");
         if let Some(code) = g.session_code.get(session_id).cloned() {
+            if g.active.get(&code).map(String::as_str) == Some(session_id) {
+                g.active.remove(&code);
+            }
             g.resumable.insert(code, session_id.to_string());
         }
     }
 
-    /// The resumable session id for a meeting code, if any.
+    /// The resumable session id for a meeting code, if any (paused sessions
+    /// only — this is the GET /resume-check contract the extension polls).
     fn resume_check(&self, meeting_code: &str) -> Option<String> {
         self.inner
             .lock()
             .expect("gmeet resume state poisoned")
             .resumable
             .get(meeting_code)
+            .cloned()
+    }
+
+    /// The reusable session id for a meeting code: a paused session in its
+    /// grace window, or the actively-recording one. Used by session_start to
+    /// re-adopt a live session when a restarted extension lost its id.
+    fn reusable(&self, meeting_code: &str) -> Option<String> {
+        let g = self.inner.lock().expect("gmeet resume state poisoned");
+        g.resumable
+            .get(meeting_code)
+            .or_else(|| g.active.get(meeting_code))
             .cloned()
     }
 
@@ -115,6 +136,9 @@ impl GmeetResumeState {
         if let Some(code) = g.session_code.remove(session_id) {
             if g.resumable.get(&code).map(String::as_str) == Some(session_id) {
                 g.resumable.remove(&code);
+            }
+            if g.active.get(&code).map(String::as_str) == Some(session_id) {
+                g.active.remove(&code);
             }
         }
     }
@@ -282,15 +306,25 @@ async fn session_start<R: Runtime>(
     // (which would append a new meeting's captions to an already-summarized
     // session — the contamination bug this guards against).
     let resume_state = st.app.try_state::<GmeetResumeState>();
-    let resumable_id = resume_state.as_ref().and_then(|rs| rs.resume_check(code));
+    let reusable_id = resume_state.as_ref().and_then(|rs| rs.reusable(code));
     let (gmeet_session_id, resume) = match (req.resume, requested_id) {
-        // Resume honored: the id the extension wants is still the resumable one.
-        (true, Some(req_id)) if resumable_id.as_deref() == Some(req_id) => {
+        // Resume honored: the id the extension wants is still the reusable one
+        // (paused in its grace window, or still actively recording).
+        (true, Some(req_id)) if reusable_id.as_deref() == Some(req_id) => {
             (req_id.to_string(), true)
         }
         // Resume requested but stale (finalized since the extension checked) →
         // mint a fresh id; never reuse a possibly-finalized id.
         (true, _) => (format!("gmeet-{code}-{}", uuid::Uuid::new_v4()), false),
+        // Fresh start, but this meeting code already has a live/paused session:
+        // the extension (content script or SW) restarted and lost its id. Adopt
+        // the existing session instead of forking a second one — forking
+        // orphaned all captions sent under the old id (the captions=0 bug).
+        (false, _) if reusable_id.is_some() => {
+            let id = reusable_id.clone().unwrap_or_default();
+            log::info!("gmeet ingest: adopting existing session {id} for code {code}");
+            (id, true)
+        }
         // Fresh start with the extension's own id.
         (false, Some(req_id)) => (req_id.to_string(), false),
         // Fresh start, minting an id (extension omitted one).
@@ -533,6 +567,35 @@ mod tests {
         s.on_start("sess-1", CODE);
         // Started but never paused → nothing to resume.
         assert_eq!(s.resume_check(CODE), None);
+    }
+
+    #[test]
+    fn active_session_is_adoptable_by_session_start() {
+        // Extension restarted mid-meeting and lost its id: session_start must
+        // re-adopt the live session instead of forking a second one (the fork
+        // orphaned every caption sent under the first id → captions=0).
+        let s = GmeetResumeState::default();
+        s.on_start("sess-1", CODE);
+        assert_eq!(s.reusable(CODE), Some("sess-1".to_string()));
+        // But the public resume-check contract stays paused-only.
+        assert_eq!(s.resume_check(CODE), None);
+    }
+
+    #[test]
+    fn pause_moves_session_from_active_to_resumable() {
+        let s = GmeetResumeState::default();
+        s.on_start("sess-1", CODE);
+        s.on_pause("sess-1");
+        assert_eq!(s.resume_check(CODE), Some("sess-1".to_string()));
+        assert_eq!(s.reusable(CODE), Some("sess-1".to_string()));
+    }
+
+    #[test]
+    fn finalize_clears_active_adoption_too() {
+        let s = GmeetResumeState::default();
+        s.on_start("sess-1", CODE);
+        s.clear("sess-1");
+        assert_eq!(s.reusable(CODE), None, "finalized id must never be re-adopted");
     }
 
     #[test]
