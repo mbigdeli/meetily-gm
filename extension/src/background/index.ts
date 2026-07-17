@@ -8,7 +8,9 @@ import {
   endSession as gmeetEndSession,
   pauseSession as gmeetPauseSession,
   checkGmeetHealth,
+  setPairingRefresher,
 } from "../shared/gmeetClient.js";
+import { ensureGmeetPairing } from "../shared/autoPairing.js";
 import type { ExtensionMessage, SettingsAndSessionResponse } from "../shared/messages.js";
 import type { CurrentMeetingSnapshot, RecordingReadiness } from "../shared/recordingsTypes.js";
 import { extensionMessageSchema, liveCaptionLanguageSchema, meetingCaptureSettingsSchema } from "../shared/schemas.js";
@@ -28,6 +30,12 @@ import { setBadgeRecording } from "./badge.js";
 const HEALTH_ALARM = "mcs-local-service-health";
 
 const serviceClient = new LocalServiceClient(getSettings);
+
+// Zero-touch pairing (doc 15): wire the native-host refresher into the gmeet
+// client, then pair eagerly on every SW start. Both are fire-and-forget — the
+// SW must register listeners synchronously and never block on async work here.
+setPairingRefresher(() => ensureGmeetPairing(true));
+void ensureGmeetPairing();
 
 /**
  * Stream ID pre-fetched eagerly inside the CAPTURE_START handler while the

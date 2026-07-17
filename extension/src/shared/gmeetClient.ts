@@ -51,11 +51,22 @@ export async function setGmeetPairing(pairing: GmeetPairing): Promise<void> {
   });
 }
 
-async function post<T = unknown>(path: string, body: unknown): Promise<GmeetResult<T>> {
-  const pairing = await getGmeetPairing();
-  if (!pairing) {
-    return { ok: false, error: "not_paired" };
-  }
+/**
+ * Optional hook the service worker registers to re-fetch pairing from the
+ * native host (see shared/autoPairing.ts). Injected instead of imported to
+ * keep this module free of a gmeetClient <-> autoPairing import cycle.
+ */
+let pairingRefresher: (() => Promise<GmeetPairing | null>) | null = null;
+
+export function setPairingRefresher(refresh: () => Promise<GmeetPairing | null>): void {
+  pairingRefresher = refresh;
+}
+
+async function postOnce<T = unknown>(
+  pairing: GmeetPairing,
+  path: string,
+  body: unknown,
+): Promise<GmeetResult<T>> {
   try {
     const resp = await fetch(`${pairing.baseUrl}${path}`, {
       method: "POST",
@@ -78,6 +89,25 @@ async function post<T = unknown>(path: string, body: unknown): Promise<GmeetResu
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
+}
+
+async function post<T = unknown>(path: string, body: unknown): Promise<GmeetResult<T>> {
+  let pairing = await getGmeetPairing();
+  if (!pairing && pairingRefresher) {
+    pairing = await pairingRefresher();
+  }
+  if (!pairing) {
+    return { ok: false, error: "not_paired" };
+  }
+  const first = await postOnce<T>(pairing, path, body);
+  // Stale token (e.g. app re-minted it): refresh over native messaging once, retry once.
+  if (!first.ok && first.error === "unauthorized" && pairingRefresher) {
+    const refreshed = await pairingRefresher();
+    if (refreshed && refreshed.token !== pairing.token) {
+      return postOnce<T>(refreshed, path, body);
+    }
+  }
+  return first;
 }
 
 /** Health probe — used to show connection status in the popup/options. */

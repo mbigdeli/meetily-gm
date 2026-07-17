@@ -30,6 +30,7 @@ use tauri::{AppHandle, Emitter, Manager, Runtime};
 use crate::state::AppState;
 
 pub mod diarize;
+pub mod native_host;
 
 /// Fixed localhost port (already whitelisted in the app's CSP connect-src).
 pub const GMEET_INGEST_PORT: u16 = 5167;
