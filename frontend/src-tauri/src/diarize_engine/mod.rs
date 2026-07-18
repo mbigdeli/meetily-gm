@@ -10,6 +10,7 @@
 
 pub mod clustering;
 pub mod models;
+pub mod powerset;
 pub mod turns;
 
 pub use turns::{merge_turns, speaker_for, speaker_name, SpeakerTurn};
