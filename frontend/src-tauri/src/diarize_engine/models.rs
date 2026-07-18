@@ -29,11 +29,16 @@ pub const SEGMENTATION: DiarizationModel = DiarizationModel {
     size_mb: 6,
 };
 
-/// 3D-Speaker CAM++ speaker-embedding model (ONNX, 16 kHz).
+/// 3D-Speaker CAM++ speaker-embedding model (ONNX, 16 kHz). The multilingual
+/// "advanced" variant — speaker embeddings are acoustic (language-agnostic), so
+/// it discriminates Persian/mixed voices fine.
+///
+/// NOTE: the upstream release tag is genuinely misspelled `speaker-recongition-
+/// models` (not "recognition"); the URL must keep the typo or the download 404s.
 pub const EMBEDDING: DiarizationModel = DiarizationModel {
-    id: "3dspeaker-campplus",
+    id: "3dspeaker-campplus-advanced",
     filename: "campplus.onnx",
-    url: "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recognition-models/3dspeaker_speech_campplus_sv_zh-cn_16k-common.onnx",
+    url: "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx",
     size_mb: 28,
 };
 
@@ -57,5 +62,12 @@ mod tests {
             assert!(!m.filename.is_empty());
             assert!(m.size_mb > 0);
         }
+    }
+
+    #[test]
+    fn embedding_url_keeps_the_upstream_misspelled_tag() {
+        // The sherpa-onnx release tag is literally "speaker-recongition-models".
+        // "Correcting" it to "recognition" 404s the download — guard it.
+        assert!(EMBEDDING.url.contains("speaker-recongition-models"));
     }
 }
