@@ -309,6 +309,8 @@ async fn diarize_chunk(
                 "{base_user}\n\nYour previous reply was not valid JSON matching the shape. Error: {last_err}. Return STRICT JSON ONLY."
             )
         };
+        // Fusion runs on the LLM the user configured in Settings, not a
+        // hardcoded provider (see summary::configured).
         let raw = crate::summary::configured::generate_with_configured(
             pool,
             Some(&app_data_dir_buf),

@@ -161,6 +161,7 @@ pub async fn generate_summary(
 
         return crate::codex::generate_with_codex(
             app_data_dir,
+            model_name,
             system_prompt,
             user_prompt,
             cancellation_token,
@@ -176,6 +177,7 @@ pub async fn generate_summary(
 
         return crate::claude_code::generate_with_claude_code(
             app_data_dir,
+            model_name,
             system_prompt,
             user_prompt,
             cancellation_token,

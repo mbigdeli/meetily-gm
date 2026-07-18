@@ -361,6 +361,27 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     loadDevicePreferences();
   }, []);
 
+  // Backend-verified model ids for the CLI providers (mirrors the dynamic
+  // list in ModelSettingsModal — both read the same on-disk catalog cache).
+  const [cliModelIds, setCliModelIds] = useState<{ codex: string[]; 'claude-code': string[] }>({
+    codex: ['default'],
+    'claude-code': ['default'],
+  });
+  useEffect(() => {
+    const loadCliCatalogs = async () => {
+      for (const provider of ['codex', 'claude-code'] as const) {
+        try {
+          const cmd = provider === 'codex' ? 'codex_list_models' : 'claude_list_models';
+          const list = await invoke<{ models: { id: string }[] }>(cmd, { refresh: false });
+          setCliModelIds(prev => ({ ...prev, [provider]: list.models.map(m => m.id) }));
+        } catch (err) {
+          console.log(`${provider} model catalog not loaded:`, err);
+        }
+      }
+    };
+    loadCliCatalogs();
+  }, []);
+
   // Calculate model options based on available models
   const modelOptions: Record<ModelConfig['provider'], string[]> = {
     ollama: models.map(model => model.name),
@@ -370,7 +391,8 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     openai: ['gpt-4', 'gpt-4-turbo', 'gpt-3.5-turbo'],
     'builtin-ai': [],
     'custom-openai': [],
-    codex: ['default'],
+    codex: cliModelIds.codex,
+    'claude-code': cliModelIds['claude-code'],
   };
 
   // Toggle confidence indicator with localStorage persistence
