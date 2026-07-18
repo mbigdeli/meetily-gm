@@ -1,0 +1,6 @@
+# sqlx checksums migration files by their raw bytes. If a checkout converts
+# them to CRLF (Windows core.autocrlf), the checksum differs from a checkout
+# that kept LF, and sqlx refuses to start ("migration ... was previously
+# applied but has been modified"). Pin them to LF on every platform so the
+# on-disk bytes are deterministic regardless of git line-ending settings.
+frontend/src-tauri/migrations/*.sql text eol=lf
