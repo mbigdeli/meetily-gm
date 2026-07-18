@@ -44,6 +44,7 @@ pub mod codex;
 pub mod connectors;
 pub mod export;
 pub mod config;
+pub mod diarize_engine;
 pub mod gmeet_ingest;
 pub mod console_utils;
 pub mod database;
