@@ -45,6 +45,7 @@ pub(crate) mod cli_proc;
 pub mod codex;
 pub mod config;
 pub mod connectors;
+pub mod diarize_engine;
 pub mod console_utils;
 pub mod database;
 pub mod export;
@@ -433,6 +434,13 @@ pub fn run() {
             tauri::async_runtime::spawn(async move {
                 gmeet_ingest::serve(app_for_gmeet).await;
             });
+
+            // Meetily-GM: register the native-messaging pairing host (doc 15)
+            // so the pinned extension can fetch the ingest token with zero
+            // user input. Best-effort: missing sidecar in dev is only a warn.
+            if let Err(e) = gmeet_ingest::native_host::install(_app.handle()) {
+                log::warn!("native-messaging host registration skipped: {e:#}");
+            }
 
             // Initialize notification system with proper defaults
             log::info!("Initializing notification system...");

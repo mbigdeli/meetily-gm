@@ -6,6 +6,19 @@ export interface ActiveCapture {
 
 const ACTIVE_CAPTURE_KEY = "mcs_active_capture_v1";
 
+/**
+ * The session id ingest events must carry: the stored active capture wins over
+ * the id the content script remembers. Content-script memory goes stale when
+ * the session is re-adopted after an extension/SW restart — sending events
+ * under the stale id orphaned them server-side (the captions=0 bug).
+ */
+export function resolveSessionId(
+  active: Pick<ActiveCapture, "sessionId"> | null,
+  payloadSessionId: string,
+): string {
+  return active?.sessionId ?? payloadSessionId;
+}
+
 export async function getActiveCapture(): Promise<ActiveCapture | null> {
   const result = await chrome.storage.local.get(ACTIVE_CAPTURE_KEY);
   const raw = result[ACTIVE_CAPTURE_KEY];

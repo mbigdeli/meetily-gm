@@ -8,7 +8,9 @@ import {
   endSession as gmeetEndSession,
   pauseSession as gmeetPauseSession,
   checkGmeetHealth,
+  setPairingRefresher,
 } from "../shared/gmeetClient.js";
+import { ensureGmeetPairing } from "../shared/autoPairing.js";
 import type { ExtensionMessage, SettingsAndSessionResponse } from "../shared/messages.js";
 import type { CurrentMeetingSnapshot, RecordingReadiness } from "../shared/recordingsTypes.js";
 import { extensionMessageSchema, liveCaptionLanguageSchema, meetingCaptureSettingsSchema } from "../shared/schemas.js";
@@ -22,12 +24,23 @@ import {
 } from "../shared/storage.js";
 import { STORAGE_KEYS } from "../shared/storageKeys.js";
 import { DEFAULT_SETTINGS } from "../shared/types.js";
-import { getActiveCapture, setActiveCapture, type ActiveCapture } from "./activeCaptureStorage.js";
+import {
+  getActiveCapture,
+  resolveSessionId,
+  setActiveCapture,
+  type ActiveCapture,
+} from "./activeCaptureStorage.js";
 import { setBadgeRecording } from "./badge.js";
 
 const HEALTH_ALARM = "mcs-local-service-health";
 
 const serviceClient = new LocalServiceClient(getSettings);
+
+// Zero-touch pairing (doc 15): wire the native-host refresher into the gmeet
+// client, then pair eagerly on every SW start. Both are fire-and-forget — the
+// SW must register listeners synchronously and never block on async work here.
+setPairingRefresher(() => ensureGmeetPairing(true));
+void ensureGmeetPairing();
 
 /**
  * Stream ID pre-fetched eagerly inside the CAPTURE_START handler while the
@@ -696,7 +709,10 @@ async function handleMessage(raw: unknown, sender: chrome.runtime.MessageSender)
         return { ok: false, error: "invalid_payload" };
       }
       const { sessionId, body } = parsed.data.payload;
-      const result = await gmeetSendCaption(sessionId, body);
+      // Storage-backed id wins: the content script's copy can be stale after a
+      // restart mid-meeting (its captions would be orphaned server-side).
+      const captionSessionId = resolveSessionId(await getActiveCapture(), sessionId);
+      const result = await gmeetSendCaption(captionSessionId, body);
       if (!result.ok) {
         return { ok: false, error: result.error, detail: result };
       }
@@ -710,7 +726,8 @@ async function handleMessage(raw: unknown, sender: chrome.runtime.MessageSender)
         return { ok: false, error: "invalid_payload" };
       }
       const { sessionId, body } = parsed.data.payload;
-      const result = await gmeetSendParticipants(sessionId, body);
+      const participantSessionId = resolveSessionId(await getActiveCapture(), sessionId);
+      const result = await gmeetSendParticipants(participantSessionId, body);
       if (!result.ok) {
         return { ok: false, error: result.error, detail: result };
       }

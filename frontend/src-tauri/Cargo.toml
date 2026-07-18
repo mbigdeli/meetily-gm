@@ -195,6 +195,7 @@ whisper-rs = { version = "0.16", features = ["raw-api", "metal", "coreml"] }
 [target.'cfg(target_os = "windows")'.dependencies]
 whisper-rs = { version = "0.16", features = ["raw-api"] }
 futures-channel = "0.3.31"
+winreg = "0.52"
 
 # Linux-specific dependencies
 # Default: CPU-only build (no BLAS)
