@@ -41,6 +41,34 @@ pub struct TranscriptUpdate {
 // NOTE: get_transcript_history and get_recording_meeting_name functions
 // have been moved to recording_commands.rs where they have access to RECORDING_MANAGER
 
+/// Whisper pays a near-fixed 30s-window encode per call, so tiny VAD segments
+/// are catastrophically expensive on CPU. Cap merged audio just below that
+/// window so one coalesced call never spills into a second encode.
+const MAX_COALESCED_SAMPLES: usize = 448_000; // 28s @ 16kHz
+
+/// Merge whatever is already sitting in the queue into `first` (order
+/// preserved, capped at [`MAX_COALESCED_SAMPLES`]). Returns the merged chunk
+/// and how many extra queued chunks were consumed. No-op (and zero added
+/// latency) when the queue is empty — the live path is unaffected; only a
+/// backlog gets batched into a single whisper call.
+fn merge_pending_chunks(
+    first: AudioChunk,
+    receiver: &mut tokio::sync::mpsc::UnboundedReceiver<AudioChunk>,
+) -> (AudioChunk, u64) {
+    let mut merged = first;
+    let mut extra: u64 = 0;
+    while merged.data.len() < MAX_COALESCED_SAMPLES {
+        match receiver.try_recv() {
+            Ok(next) => {
+                merged.data.extend_from_slice(&next.data);
+                extra += 1;
+            }
+            Err(_) => break,
+        }
+    }
+    (merged, extra)
+}
+
 /// Optimized parallel transcription task ensuring ZERO chunk loss
 pub fn start_transcription_task<R: Runtime>(
     app: AppHandle<R>,
@@ -119,6 +147,29 @@ pub fn start_transcription_task<R: Runtime>(
 
                     match chunk {
                         Some(chunk) => {
+                            // Coalesce any queued backlog into one whisper call: each
+                            // whisper.cpp invocation costs a full 30s-window encode
+                            // regardless of input length, so N stalled segments become
+                            // one encode instead of N. Parakeet/provider engines handle
+                            // small chunks natively and keep per-chunk timestamps.
+                            let (chunk, merged_extra) =
+                                if matches!(engine_clone, TranscriptionEngine::Whisper(_)) {
+                                    let mut receiver = work_receiver_clone.lock().await;
+                                    merge_pending_chunks(chunk, &mut receiver)
+                                } else {
+                                    (chunk, 0)
+                                };
+                            if merged_extra > 0 {
+                                // Consumed chunks count as completed so queue accounting stays exact.
+                                chunks_completed_clone.fetch_add(merged_extra, Ordering::SeqCst);
+                                info!(
+                                    "👷 Worker {}: coalesced {} queued chunks into one whisper call ({} samples)",
+                                    worker_id,
+                                    merged_extra + 1,
+                                    chunk.data.len()
+                                );
+                            }
+
                             // PERFORMANCE OPTIMIZATION: Reduce logging in hot path
                             // Only log every 10th chunk per worker to reduce I/O overhead
                             let should_log_this_chunk = chunk.chunk_id % 10 == 0;
@@ -593,4 +644,61 @@ fn format_recording_time(seconds: f64) -> String {
     let secs = total_seconds % 60;
 
     format!("[{:02}:{:02}]", minutes, secs)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::audio::RecordingDeviceType;
+
+    fn chunk(id: u64, samples: usize) -> AudioChunk {
+        AudioChunk {
+            data: vec![0.1; samples],
+            sample_rate: 16000,
+            timestamp: id as f64,
+            chunk_id: id,
+            device_type: RecordingDeviceType::Microphone,
+        }
+    }
+
+    #[test]
+    fn merge_pending_chunks_empty_queue_is_noop() {
+        let (_tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<AudioChunk>();
+        let (merged, extra) = merge_pending_chunks(chunk(1, 800), &mut rx);
+        assert_eq!(extra, 0);
+        assert_eq!(merged.data.len(), 800);
+        assert_eq!(merged.chunk_id, 1);
+    }
+
+    #[test]
+    fn merge_pending_chunks_drains_queue_in_order() {
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<AudioChunk>();
+        let mut second = chunk(2, 100);
+        second.data.fill(0.5);
+        tx.send(second).unwrap();
+        tx.send(chunk(3, 200)).unwrap();
+
+        let (merged, extra) = merge_pending_chunks(chunk(1, 300), &mut rx);
+        assert_eq!(extra, 2);
+        assert_eq!(merged.data.len(), 600);
+        // First chunk's identity/timestamp kept; queued data appended in order.
+        assert_eq!(merged.chunk_id, 1);
+        assert_eq!(merged.timestamp, 1.0);
+        assert!((merged.data[300] - 0.5).abs() < f32::EPSILON);
+        assert!((merged.data[400] - 0.1).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn merge_pending_chunks_respects_sample_cap() {
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<AudioChunk>();
+        for id in 2..10 {
+            tx.send(chunk(id, MAX_COALESCED_SAMPLES / 4)).unwrap();
+        }
+
+        let (merged, extra) = merge_pending_chunks(chunk(1, MAX_COALESCED_SAMPLES / 2), &mut rx);
+        // Stops merging once the cap is reached; the rest stay queued.
+        assert!(extra < 8);
+        assert!(merged.data.len() >= MAX_COALESCED_SAMPLES / 2);
+        assert!(merged.data.len() <= MAX_COALESCED_SAMPLES + MAX_COALESCED_SAMPLES / 4);
+    }
 }
