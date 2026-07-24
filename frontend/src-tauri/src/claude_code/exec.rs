@@ -15,9 +15,17 @@ use tokio_util::sync::CancellationToken;
 use super::process::{creation_no_window, spawn_reader, tail, wait_with_deadline};
 use super::{ClaudeCliError, ClaudeInstall, EXEC_TIMEOUT_SECS, TAIL_LIMIT};
 
-/// Build the `claude` argument list (pure; unit-tested).
-pub(crate) fn build_print_args() -> Vec<std::ffi::OsString> {
-    vec!["--print".into(), "--output-format".into(), "text".into()]
+/// Build the `claude` argument list (pure; unit-tested). `model` is passed via
+/// `--model` when set (accepts aliases like `opus`/`sonnet`/`haiku` or a full
+/// name); `None` lets claude use its default.
+pub(crate) fn build_print_args(model: Option<&str>) -> Vec<std::ffi::OsString> {
+    let mut args: Vec<std::ffi::OsString> =
+        vec!["--print".into(), "--output-format".into(), "text".into()];
+    if let Some(m) = model {
+        args.push("--model".into());
+        args.push(m.into());
+    }
+    args
 }
 
 fn stderr_signals_logged_out(stderr: &str) -> bool {
@@ -34,14 +42,16 @@ fn stderr_signals_logged_out(stderr: &str) -> bool {
 pub fn exec_blocking(
     install: &ClaudeInstall,
     prompt: &str,
+    model: Option<&str>,
     cancel: Option<&CancellationToken>,
 ) -> Result<String, ClaudeCliError> {
     let mut cmd = Command::new(&install.path);
-    cmd.args(build_print_args())
+    cmd.args(build_print_args(model))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     creation_no_window(&mut cmd);
+    crate::platform::ensure_node_on_path(&mut cmd);
 
     let mut child = cmd.spawn().map_err(|e| ClaudeCliError::Spawn(e.to_string()))?;
     let stdin_handle = child.stdin.take().map(|mut stdin| {
@@ -81,9 +91,17 @@ mod tests {
     #[test]
     fn print_args_shape() {
         let a: Vec<String> =
-            build_print_args().iter().map(|s| s.to_string_lossy().into()).collect();
+            build_print_args(None).iter().map(|s| s.to_string_lossy().into()).collect();
         assert_eq!(a[0], "--print");
         assert!(a.contains(&"text".to_string()));
+        assert!(!a.contains(&"--model".to_string()), "no model flag when None");
+
+        let m: Vec<String> = build_print_args(Some("opus"))
+            .iter()
+            .map(|s| s.to_string_lossy().into())
+            .collect();
+        let i = m.iter().position(|s| s == "--model").expect("has --model");
+        assert_eq!(m[i + 1], "opus");
     }
 
     #[test]
@@ -101,7 +119,7 @@ mod tests {
         // Echoes a fixed reply regardless of stdin.
         std::fs::write(&fake, "@echo off\r\necho fake reply\r\nexit /b 0\r\n").unwrap();
         let install = ClaudeInstall { path: fake, version: None };
-        let out = exec_blocking(&install, "hello", None).expect("exec ok");
+        let out = exec_blocking(&install, "hello", None, None).expect("exec ok");
         assert_eq!(out, "fake reply");
     }
 }

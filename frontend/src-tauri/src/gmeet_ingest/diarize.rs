@@ -34,13 +34,16 @@ the single most reliable version. Output STRICT JSON ONLY — no markdown, no
 prose, no code fences.
 
 INPUTS
-- transcript_segments: from local Whisper on the meeting audio. Primary source
-  for the SPOKEN WORDS (accurate phrasing, punctuation, timing: start_sec,
-  end_sec, text). Has NO reliable speaker labels.
 - caption_events: from Google Meet live captions. Authoritative source for WHO
-  SPOKE (speaker_name is a real person). Wording is often truncated or lags the
-  audio, BUT captions frequently get proper nouns, names, jargon and acronyms
-  right where Whisper mishears them.
+  SPOKE (speaker_name is a real person) AND the primary source for the WORDING:
+  Google's captions are produced by a strong server-side recognizer and are
+  usually the more fluent, correct rendering — especially for non-English
+  languages (e.g. Persian), proper nouns, names, jargon and acronyms. Their
+  weaknesses: lines can be truncated, deduplicated oddly, or lag the audio.
+- transcript_segments: from local Whisper on the meeting audio. Authoritative
+  for TIMING (start_sec, end_sec) and useful to fill spans captions missed.
+  Its wording can be garbled (small local model, noisy audio); it has NO
+  reliable speaker labels.
 - participants: attendee roster (real names), may be empty.
 
 TIMELINE NOTE
@@ -51,16 +54,23 @@ turn continuity, matching text), then align. A caption whose text matches a
 Whisper span pins down both the speaker AND the offset.
 
 TASK — build final_segments (one clean transcript, one line per speaker turn):
-- WORDS: base each segment on Whisper's phrasing. Reconcile discrepancies to the
-  most plausible single version — when a caption clearly has the correct name /
-  proper noun / term that Whisper garbled, adopt that correction. Do NOT emit two
-  variants and do NOT keep obvious mis-hearings when the caption disambiguates.
-  Where Whisper is empty for a span that captions cover, use the caption text.
+- WORDS, per segment: choose the more fluent, plausible rendering. Default to
+  the caption text when the two disagree and the caption reads coherently;
+  fall back to Whisper where captions are missing, truncated mid-sentence, or
+  visibly deduplicated. Judge PER SEGMENT — never globally prefer one source.
+  If Whisper for a span is gibberish and a caption covers it, use the caption
+  verbatim. Do NOT emit two variants of the same utterance.
 - SPEAKER: assign speaker_name from caption_events by best offset-adjusted time
-  overlap + text similarity + turn continuity. Prefer a roster name. Never invent
-  a name; if none plausibly matches, use "Unknown" and lower confidence.
-- Merge overlapping/duplicate Whisper spans into one; split into a new segment at
-  each speaker change.
+  overlap + text similarity + turn continuity. Prefer a roster name. Self labels
+  such as "You", "شما", "Sie", "Vous" mean the LOCAL user of this recording: if
+  the roster or caption speakers make their real name unambiguous (e.g. exactly
+  one roster name never appearing as a caption speaker), use that real name;
+  otherwise keep "You" as-is. Never invent a name; if none plausibly matches,
+  use "Unknown" and lower confidence.
+- TIMING: keep start_sec/end_sec anchored to Whisper's (offset-adjusted)
+  timeline; captions' timestamps are hints, not anchors.
+- Merge overlapping/duplicate spans into one; split into a new segment at each
+  speaker change.
 - Preserve the original spoken language(s); do NOT translate or summarize.
 - Keep chronological order by start_sec. confidence (0..1) = certainty of the
   speaker attribution.
@@ -203,7 +213,7 @@ pub async fn run_diarization<R: Runtime>(
     let mut all: Vec<SegParams> = Vec::new();
 
     if total_end <= SINGLE_CALL_MAX_SECONDS {
-        match diarize_chunk(&app_data_dir, &whisper, &captions).await {
+        match diarize_chunk(pool, &app_data_dir, &whisper, &captions).await {
             Ok(mut segs) => all.append(&mut segs),
             Err(e) => {
                 log::error!("diarize: consolidation failed ({e}); falling back to whisper");
@@ -240,7 +250,7 @@ pub async fn run_diarization<R: Runtime>(
                 all.extend(whisper_as_segments(&w_slice));
                 continue;
             }
-            match diarize_chunk(&app_data_dir, &w_slice, &c_slice).await {
+            match diarize_chunk(pool, &app_data_dir, &w_slice, &c_slice).await {
                 Ok(mut segs) => all.append(&mut segs),
                 Err(e) => {
                     log::warn!("diarize: chunk {i} failed ({e}); using whisper for this window");
@@ -272,10 +282,13 @@ fn timeline_end(whisper: &[WhisperRow], captions: &[CaptionRow]) -> f64 {
     w.max(c)
 }
 
-/// Consolidate one window (Whisper + captions) via Codex into diarized segments.
-/// Retries JSON-shape failures up to MAX_ATTEMPTS; Err after that (caller falls
-/// back to raw Whisper for the window so no data is lost).
+/// Consolidate one window (Whisper + captions) into diarized segments via the
+/// user's configured LLM (Settings -> Model: ollama/claude/groq/openrouter/
+/// codex/claude-code/...). Retries JSON-shape failures up to MAX_ATTEMPTS; Err
+/// after that (caller falls back to raw Whisper for the window so no data is
+/// lost).
 async fn diarize_chunk(
+    pool: &SqlitePool,
     app_data_dir: &Path,
     whisper: &[WhisperRow],
     captions: &[CaptionRow],
@@ -285,6 +298,7 @@ async fn diarize_chunk(
         "Merge the following into the required JSON object. Output ONLY the JSON.\n\n{}",
         serde_json::to_string(&package).unwrap_or_default()
     );
+    let app_data_dir_buf = app_data_dir.to_path_buf();
 
     let mut last_err = String::new();
     for attempt in 0..MAX_ATTEMPTS {
@@ -295,9 +309,15 @@ async fn diarize_chunk(
                 "{base_user}\n\nYour previous reply was not valid JSON matching the shape. Error: {last_err}. Return STRICT JSON ONLY."
             )
         };
-        let raw =
-            crate::codex::generate_with_codex(app_data_dir, DIARIZE_SYSTEM_PROMPT, &user_prompt, None)
-                .await?;
+        // Fusion runs on the LLM the user configured in Settings, not a
+        // hardcoded provider (see summary::configured).
+        let raw = crate::summary::configured::generate_with_configured(
+            pool,
+            Some(&app_data_dir_buf),
+            DIARIZE_SYSTEM_PROMPT,
+            &user_prompt,
+        )
+        .await?;
 
         match parse_json_lenient(&raw) {
             Ok(v) => match v.get("final_segments").and_then(|s| s.as_array()) {

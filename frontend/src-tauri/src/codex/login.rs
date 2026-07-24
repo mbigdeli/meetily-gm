@@ -73,6 +73,7 @@ pub fn spawn_login_capture(install: &CodexInstall) -> Result<LoginSession, Strin
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     creation_no_window(&mut cmd);
+    crate::platform::ensure_node_on_path(&mut cmd);
 
     let mut child = cmd.spawn().map_err(|e| e.to_string())?;
     let pid = child.id();

@@ -567,10 +567,10 @@ impl WhisperEngine {
         params.set_max_len(200);
         params.set_single_segment(false);
 
-        // Set thread count based on hardware (if supported by whisper.cpp)
-        if let Some(_max_threads) = adaptive_config.max_threads {
-            // Note: whisper.cpp may or may not expose thread control through params
-            // Removed debug log to reduce I/O overhead in transcription hot path
+        // whisper.cpp defaults to 4 threads; without this the adaptive
+        // max_threads config was computed but never applied.
+        if let Some(max_threads) = adaptive_config.max_threads {
+            params.set_n_threads(max_threads as i32);
         }
 
         let duration_seconds = audio_data.len() as f64 / 16000.0;
@@ -691,6 +691,12 @@ impl WhisperEngine {
 
         // Note: compression_ratio_threshold would be ideal but not available in current whisper-rs
         // This would help detect repetitive outputs: params.set_compression_ratio_threshold(2.4);
+
+        // whisper.cpp defaults to 4 threads; without this the adaptive
+        // max_threads config was computed but never applied.
+        if let Some(max_threads) = adaptive_config.max_threads {
+            params.set_n_threads(max_threads as i32);
+        }
 
         // Duration-based optimization is handled by beam search parameters
         let duration_seconds = audio_data.len() as f64 / 16000.0; // Assuming 16kHz

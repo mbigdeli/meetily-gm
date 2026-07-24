@@ -13,6 +13,7 @@
 
 pub mod commands;
 pub mod login;
+pub mod models;
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -117,6 +118,7 @@ fn query_version(path: &Path) -> Option<String> {
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
     creation_no_window(&mut cmd);
+    crate::platform::ensure_node_on_path(&mut cmd);
     let (code, stdout, _stderr) = run_to_completion(cmd, STATUS_TIMEOUT_SECS, None).ok()?;
     if code != 0 {
         return None;
@@ -138,6 +140,7 @@ fn resolve_via_lookup() -> Option<PathBuf> {
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
     creation_no_window(&mut cmd);
+    crate::platform::ensure_node_on_path(&mut cmd);
     let (code, stdout, _stderr) = run_to_completion(cmd, STATUS_TIMEOUT_SECS, None).ok()?;
     if code != 0 {
         return None;
@@ -150,6 +153,43 @@ fn resolve_via_lookup() -> Option<PathBuf> {
         .filter(|p| p.is_file())
         .collect();
     pick_best_candidate(&candidates)
+}
+
+/// Upgrade an npm `.cmd`/`.bat` shim to the native binary it ultimately runs.
+///
+/// The shim chain (`codex.cmd` → cmd.exe → `node codex.js` → native exe)
+/// requires a cmd-resolvable `node` and a sane PATH — both can be absent when
+/// the app is launched from a POSIX-style shell, and cmd.exe mishandles the
+/// huge PATH a cargo dev environment injects. The npm package vendors the real
+/// binary at `node_modules/@openai/codex/node_modules/@openai/<platform-pkg>/
+/// vendor/<triple>/bin/codex(.exe)`; spawning it directly needs no shell, no
+/// node, and no PATH at all.
+fn vendored_native_exe(shim: &Path) -> Option<PathBuf> {
+    match shim.extension().and_then(|e| e.to_str()) {
+        Some(ext) if ext.eq_ignore_ascii_case("cmd") || ext.eq_ignore_ascii_case("bat") => {}
+        _ => return None, // already a native binary (or not a Windows shim)
+    }
+    let scoped = shim
+        .parent()?
+        .join("node_modules")
+        .join("@openai")
+        .join("codex")
+        .join("node_modules")
+        .join("@openai");
+    let exe_name = if cfg!(windows) { "codex.exe" } else { "codex" };
+    for pkg in std::fs::read_dir(&scoped).ok()?.flatten() {
+        let vendor = pkg.path().join("vendor");
+        let Ok(triples) = std::fs::read_dir(&vendor) else {
+            continue;
+        };
+        for triple in triples.flatten() {
+            let exe = triple.path().join("bin").join(exe_name);
+            if exe.is_file() {
+                return Some(exe);
+            }
+        }
+    }
+    None
 }
 
 fn known_install_paths() -> Vec<PathBuf> {
@@ -194,6 +234,8 @@ pub fn resolve_codex_binary() -> Result<CodexInstall, CodexCliError> {
 
     match found {
         Some(path) => {
+            // Prefer the vendored native exe over the node-dependent shim.
+            let path = vendored_native_exe(&path).unwrap_or(path);
             let install = CodexInstall {
                 version: query_version(&path),
                 path,
@@ -218,12 +260,13 @@ pub fn login_status(install: &CodexInstall) -> Result<bool, CodexCliError> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     creation_no_window(&mut cmd);
+    crate::platform::ensure_node_on_path(&mut cmd);
     let (code, _stdout, _stderr) = run_to_completion(cmd, STATUS_TIMEOUT_SECS, None)?;
     Ok(code == 0)
 }
 
 /// Directory codex stores its state in (`CODEX_HOME` or `~/.codex`).
-fn codex_home() -> Option<PathBuf> {
+pub(crate) fn codex_home() -> Option<PathBuf> {
     if let Some(home) = std::env::var_os("CODEX_HOME") {
         return Some(PathBuf::from(home));
     }
@@ -284,6 +327,7 @@ pub fn logout(install: &CodexInstall) -> Result<bool, CodexCliError> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     creation_no_window(&mut cmd);
+    crate::platform::ensure_node_on_path(&mut cmd);
     let (code, _stdout, _stderr) = run_to_completion(cmd, STATUS_TIMEOUT_SECS, None)?;
     Ok(code == 0)
 }
@@ -373,14 +417,46 @@ fn tail(s: &str, limit: usize) -> String {
 
 fn stderr_signals_logged_out(stderr: &str) -> bool {
     let lower = stderr.to_ascii_lowercase();
+    // No bare "401": session ids / request ids are hex-ish strings that can
+    // contain it, which mislabeled unrelated failures as auth errors.
     lower.contains("not logged in")
         || lower.contains("please run `codex login`")
-        || lower.contains("401")
+        || lower.contains("\"status\":401")
+        || lower.contains("401 unauthorized")
         || lower.contains("unauthorized")
 }
 
-/// Build the `codex exec` argument list (pure; unit-tested).
-fn build_exec_args(workdir: &Path, include_optional: bool) -> Vec<std::ffi::OsString> {
+/// The backend rejects models newer than the installed CLI with a 400 that
+/// tells the user to upgrade — surface that as its own actionable error
+/// instead of a generic (or worse, auth-shaped) failure.
+fn stderr_signals_upgrade_required(stderr: &str) -> bool {
+    stderr
+        .to_ascii_lowercase()
+        .contains("requires a newer version of codex")
+}
+
+/// Retired/unknown model ids get a 400 like "The 'x' model is not supported
+/// when using Codex with a ChatGPT account." — point the user at the model
+/// picker instead of surfacing a raw API error.
+fn stderr_signals_model_not_supported(stderr: &str) -> bool {
+    let lower = stderr.to_ascii_lowercase();
+    lower.contains("model is not supported")
+}
+
+/// Normalize a stored model choice into a CLI value: `None` for the sentinel
+/// "default"/empty (let the CLI/`config.toml` decide), else the model name.
+pub(crate) fn model_flag(model: &str) -> Option<String> {
+    let m = model.trim();
+    (!m.is_empty() && !m.eq_ignore_ascii_case("default")).then(|| m.to_string())
+}
+
+/// Build the `codex exec` argument list (pure; unit-tested). `model` is passed
+/// via `-m` when set; `None` lets codex use its configured default.
+fn build_exec_args(
+    workdir: &Path,
+    include_optional: bool,
+    model: Option<&str>,
+) -> Vec<std::ffi::OsString> {
     let mut args: Vec<std::ffi::OsString> = vec![
         "exec".into(),
         "--skip-git-repo-check".into(),
@@ -396,6 +472,10 @@ fn build_exec_args(workdir: &Path, include_optional: bool) -> Vec<std::ffi::OsSt
     if include_optional {
         args.push("--ephemeral".into());
     }
+    if let Some(m) = model {
+        args.push("-m".into());
+        args.push(m.into());
+    }
     // Read the full prompt from stdin (immune to Windows' 32K argument limit).
     args.push("-".into());
     args
@@ -406,14 +486,16 @@ fn run_exec_once(
     prompt: &str,
     workdir: &Path,
     include_optional: bool,
+    model: Option<&str>,
     cancel: Option<&CancellationToken>,
 ) -> Result<(i32, String, String), CodexCliError> {
     let mut cmd = Command::new(&install.path);
-    cmd.args(build_exec_args(workdir, include_optional))
+    cmd.args(build_exec_args(workdir, include_optional, model))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     creation_no_window(&mut cmd);
+    crate::platform::ensure_node_on_path(&mut cmd);
 
     let mut child = cmd
         .spawn()
@@ -450,20 +532,37 @@ pub fn exec_blocking(
     install: &CodexInstall,
     prompt: &str,
     workdir: &Path,
+    model: Option<&str>,
     cancel: Option<&CancellationToken>,
 ) -> Result<String, CodexCliError> {
     let last_message_path = workdir.join("codex_last_message.txt");
     let _ = std::fs::remove_file(&last_message_path);
 
-    let (mut code, mut stdout, mut stderr) = run_exec_once(install, prompt, workdir, true, cancel)?;
+    let (mut code, mut stdout, mut stderr) =
+        run_exec_once(install, prompt, workdir, true, model, cancel)?;
 
     // Older CLI versions may not know --ephemeral; retry once without it.
     if code == 2 && stderr.to_ascii_lowercase().contains("unexpected argument") {
         log::warn!("codex exec rejected optional flags; retrying without them");
-        (code, stdout, stderr) = run_exec_once(install, prompt, workdir, false, cancel)?;
+        (code, stdout, stderr) = run_exec_once(install, prompt, workdir, false, model, cancel)?;
     }
 
     if code != 0 {
+        if stderr_signals_upgrade_required(&stderr) {
+            return Err(CodexCliError::BadOutput(
+                "Codex CLI is too old for the model configured in ~/.codex/config.toml. \
+                 Run `npm i -g @openai/codex@latest` (or remove the `model =` line), then retry."
+                    .into(),
+            ));
+        }
+        if stderr_signals_model_not_supported(&stderr) {
+            return Err(CodexCliError::BadOutput(
+                "The selected model is not available on this ChatGPT account (it may be \
+                 retired). Open Settings → Summary model, hit 'Refresh models', and pick a \
+                 current one."
+                    .into(),
+            ));
+        }
         if stderr_signals_logged_out(&stderr) {
             return Err(CodexCliError::NotLoggedIn);
         }
@@ -495,6 +594,7 @@ pub fn exec_blocking(
 /// token (kills the codex child process on cancel).
 pub async fn generate_with_codex(
     app_data_dir: &Path,
+    model: &str,
     system_prompt: &str,
     user_prompt: &str,
     cancellation_token: Option<&CancellationToken>,
@@ -516,9 +616,16 @@ pub async fn generate_with_codex(
 
     let prompt = format!("{system_prompt}\n\n{user_prompt}");
     let token = cancellation_token.cloned();
+    let model = model_flag(model);
 
     let result = tokio::task::spawn_blocking(move || {
-        exec_blocking(&install, &prompt, &workdir, token.as_ref())
+        exec_blocking(
+            &install,
+            &prompt,
+            &workdir,
+            model.as_deref(),
+            token.as_ref(),
+        )
     })
     .await
     .map_err(|e| format!("codex task join error: {e}"))?;
@@ -583,7 +690,9 @@ mod tests {
         ];
         assert_eq!(
             pick_best_candidate(&candidates),
-            Some(PathBuf::from("C:\\Users\\x\\AppData\\Roaming\\npm\\codex.cmd"))
+            Some(PathBuf::from(
+                "C:\\Users\\x\\AppData\\Roaming\\npm\\codex.cmd"
+            ))
         );
     }
 
@@ -600,20 +709,100 @@ mod tests {
         );
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn vendored_native_exe_found_from_cmd_shim() {
+        let dir = tempfile::tempdir().unwrap();
+        let shim = dir.path().join("codex.cmd");
+        std::fs::write(&shim, "@echo off\r\n").unwrap();
+        let bin = dir.path().join(
+            r"node_modules\@openai\codex\node_modules\@openai\codex-win32-x64\vendor\x86_64-pc-windows-msvc\bin",
+        );
+        std::fs::create_dir_all(&bin).unwrap();
+        let exe = bin.join("codex.exe");
+        std::fs::write(&exe, "MZ").unwrap();
+        assert_eq!(vendored_native_exe(&shim), Some(exe));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn vendored_native_exe_passthrough_cases() {
+        let dir = tempfile::tempdir().unwrap();
+        // Already-native binaries are never rewritten.
+        let exe = dir.path().join("codex.exe");
+        std::fs::write(&exe, "MZ").unwrap();
+        assert_eq!(vendored_native_exe(&exe), None);
+        // A shim with no vendored package next to it stays a shim.
+        let shim = dir.path().join("codex.cmd");
+        std::fs::write(&shim, "@echo off\r\n").unwrap();
+        assert_eq!(vendored_native_exe(&shim), None);
+    }
+
+    #[test]
+    fn logged_out_heuristic_ignores_401_inside_ids() {
+        // Real failure seen live: model-too-new 400 + a session id that could
+        // contain "401" — must NOT be classified as an auth failure.
+        let stderr = r#"session id: 019f5401-3833-7241-a07e-b932b2a9bf6f
+ERROR: {"type":"error","status":400,"error":{"type":"invalid_request_error","message":"The 'gpt-5.6-sol' model requires a newer version of Codex. Please upgrade to the latest app or CLI and try again."}}"#;
+        assert!(!stderr_signals_logged_out(stderr));
+        assert!(stderr_signals_upgrade_required(stderr));
+    }
+
+    #[test]
+    fn logged_out_heuristic_still_catches_real_auth_failures() {
+        assert!(stderr_signals_logged_out("Not logged in"));
+        assert!(stderr_signals_logged_out(r#"{"status":401,"error":"x"}"#));
+        assert!(stderr_signals_logged_out("HTTP 401 Unauthorized"));
+        assert!(!stderr_signals_upgrade_required("Not logged in"));
+    }
+
+    #[test]
+    fn retired_model_400_is_its_own_signal() {
+        // Real 400 observed live for an invalid/retired `-m` value.
+        let stderr = r#"ERROR: {"type":"error","status":400,"error":{"type":"invalid_request_error","message":"The 'gpt-4o' model is not supported when using Codex with a ChatGPT account."}}"#;
+        assert!(stderr_signals_model_not_supported(stderr));
+        assert!(!stderr_signals_upgrade_required(stderr));
+        assert!(!stderr_signals_logged_out(stderr));
+        assert!(!stderr_signals_model_not_supported("some other 400"));
+    }
+
     #[test]
     fn build_exec_args_shape() {
-        let args = build_exec_args(Path::new("C:\\w"), true);
-        let strs: Vec<String> = args.iter().map(|a| a.to_string_lossy().to_string()).collect();
+        let args = build_exec_args(Path::new("C:\\w"), true, None);
+        let strs: Vec<String> = args
+            .iter()
+            .map(|a| a.to_string_lossy().to_string())
+            .collect();
         assert_eq!(strs[0], "exec");
         assert!(strs.contains(&"--skip-git-repo-check".to_string()));
         assert!(strs.contains(&"--ephemeral".to_string()));
         assert_eq!(strs.last().unwrap(), "-");
+        assert!(!strs.contains(&"-m".to_string()), "no model flag when None");
 
-        let without: Vec<String> = build_exec_args(Path::new("C:\\w"), false)
+        let without: Vec<String> = build_exec_args(Path::new("C:\\w"), false, None)
             .iter()
             .map(|a| a.to_string_lossy().to_string())
             .collect();
         assert!(!without.contains(&"--ephemeral".to_string()));
+    }
+
+    #[test]
+    fn build_exec_args_passes_model_before_stdin() {
+        let strs: Vec<String> = build_exec_args(Path::new("C:\\w"), true, Some("gpt-5.6-sol"))
+            .iter()
+            .map(|a| a.to_string_lossy().to_string())
+            .collect();
+        let i = strs.iter().position(|s| s == "-m").expect("has -m");
+        assert_eq!(strs[i + 1], "gpt-5.6-sol");
+        assert_eq!(strs.last().unwrap(), "-", "stdin marker stays last");
+    }
+
+    #[test]
+    fn model_flag_treats_default_and_blank_as_none() {
+        assert_eq!(model_flag("default"), None);
+        assert_eq!(model_flag("  Default "), None);
+        assert_eq!(model_flag(""), None);
+        assert_eq!(model_flag("gpt-5.6-sol").as_deref(), Some("gpt-5.6-sol"));
     }
 
     #[test]
@@ -652,7 +841,7 @@ mod tests {
 
         let _guard = EnvGuard::set(CODEX_EXE_ENV, &fake);
         let install = resolve_codex_binary().expect("fake codex resolves");
-        let out = exec_blocking(&install, "hello", &workdir, None).expect("exec ok");
+        let out = exec_blocking(&install, "hello", &workdir, None, None).expect("exec ok");
         assert_eq!(out, "fake summary");
     }
 }

@@ -29,9 +29,11 @@ import {
 } from '@/components/ui/command';
 import { cn, isOllamaNotInstalledError } from '@/lib/utils';
 import { toast } from 'sonner';
+import { CliModelsSection } from './CliModelsSection';
+import { CliModelEntry, CliProvider, listCliModels } from '@/services/cliModelService';
 
 export interface ModelConfig {
-  provider: 'ollama' | 'groq' | 'claude' | 'openai' | 'openrouter' | 'builtin-ai' | 'custom-openai' | 'codex';
+  provider: 'ollama' | 'groq' | 'claude' | 'openai' | 'openrouter' | 'builtin-ai' | 'custom-openai' | 'codex' | 'claude-code';
   model: string;
   whisperModel: string;
   apiKey?: string | null;
@@ -231,6 +233,38 @@ export function ModelSettingsModal({
   const [codexAuthUrl, setCodexAuthUrl] = useState<string | null>(null);
   const codexCancelRef = useRef(false);
 
+  // Validated model lists for the CLI providers. null = not loaded yet;
+  // loads are cache reads except the explicit "Refresh models" action.
+  const [cliModels, setCliModels] = useState<Record<CliProvider, CliModelEntry[] | null>>({
+    codex: null,
+    'claude-code': null,
+  });
+  const [cliModelsLoading, setCliModelsLoading] = useState<Record<CliProvider, boolean>>({
+    codex: false,
+    'claude-code': false,
+  });
+
+  const loadCliModels = async (provider: CliProvider, refresh: boolean) => {
+    setCliModelsLoading((prev) => ({ ...prev, [provider]: true }));
+    try {
+      const list = await listCliModels(provider, refresh);
+      setCliModels((prev) => ({ ...prev, [provider]: list.models }));
+      if (refresh) {
+        const n = list.models.filter((m) => m.id !== 'default').length;
+        toast.success(
+          n > 0
+            ? `${n} model${n === 1 ? '' : 's'} verified and saved.`
+            : 'No models passed verification — use the manual entry below.',
+        );
+      }
+    } catch (err) {
+      if (refresh) toast.error(`Model refresh failed: ${err}`);
+      else console.error(`${provider} model list failed:`, err);
+    } finally {
+      setCliModelsLoading((prev) => ({ ...prev, [provider]: false }));
+    }
+  };
+
   const refreshCodexStatus = async (): Promise<CodexStatus | null> => {
     try {
       const status = (await invoke('codex_status')) as CodexStatus;
@@ -312,9 +346,107 @@ export function ModelSettingsModal({
     }
   };
 
+  // --- Claude Code CLI provider state (Miting) — mirrors the Codex flow ---
+  interface ClaudeStatus {
+    connected: boolean;
+    cli_installed: boolean;
+    cli_path?: string | null;
+    cli_version?: string | null;
+    user_email?: string | null;
+    subscription_type?: string | null;
+    detail?: string | null;
+  }
+  const [claudeStatus, setClaudeStatus] = useState<ClaudeStatus | null>(null);
+  const [claudeBusy, setClaudeBusy] = useState(false);
+  const [claudeAuthUrl, setClaudeAuthUrl] = useState<string | null>(null);
+  const claudeCancelRef = useRef(false);
+
+  const refreshClaudeStatus = async (): Promise<ClaudeStatus | null> => {
+    try {
+      const status = (await invoke('claude_code_status')) as ClaudeStatus;
+      setClaudeStatus(status);
+      return status;
+    } catch (err) {
+      console.error('claude_code_status failed:', err);
+      setClaudeStatus({ connected: false, cli_installed: false, detail: String(err) });
+      return null;
+    }
+  };
+
+  const signInClaude = async () => {
+    setClaudeBusy(true);
+    setClaudeAuthUrl(null);
+    claudeCancelRef.current = false;
+    try {
+      const session = (await invoke('claude_code_login_start')) as {
+        pid: number;
+        auth_url: string | null;
+      };
+      if (session?.auth_url) setClaudeAuthUrl(session.auth_url);
+      toast.info(
+        "Complete the sign-in in the browser Claude opened. If it didn't open, use the link below.",
+      );
+      for (let i = 0; i < 100; i++) {
+        if (claudeCancelRef.current) {
+          toast.info('Claude sign-in cancelled.');
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 3000));
+        const status = await refreshClaudeStatus();
+        if (status?.connected) {
+          setClaudeAuthUrl(null);
+          toast.success(
+            status.user_email ? `Connected to Claude as ${status.user_email}` : 'Connected to Claude',
+          );
+          return;
+        }
+      }
+      toast.warning('Claude sign-in timed out. Try again.');
+    } catch (err) {
+      toast.error(`Claude sign-in failed: ${err}`);
+    } finally {
+      setClaudeBusy(false);
+    }
+  };
+
+  const cancelClaudeSignIn = () => {
+    claudeCancelRef.current = true;
+  };
+
+  const openClaudeAuthUrl = async () => {
+    if (!claudeAuthUrl) return;
+    try {
+      await invoke('api_open_external', { url: claudeAuthUrl });
+    } catch (err) {
+      toast.error(`Couldn't open the sign-in page: ${err}`);
+    }
+  };
+
+  const signOutClaude = async () => {
+    setClaudeBusy(true);
+    try {
+      await invoke('claude_code_logout');
+      toast.success('Signed out of Claude.');
+    } catch (err) {
+      toast.error(`Claude sign-out failed: ${err}`);
+    } finally {
+      setClaudeBusy(false);
+      await refreshClaudeStatus();
+    }
+  };
+
   useEffect(() => {
     if (modelConfig.provider === 'codex' && codexStatus === null) {
       refreshCodexStatus();
+    }
+    if (modelConfig.provider === 'claude-code' && claudeStatus === null) {
+      refreshClaudeStatus();
+    }
+    if (
+      (modelConfig.provider === 'codex' || modelConfig.provider === 'claude-code') &&
+      cliModels[modelConfig.provider] === null
+    ) {
+      loadCliModels(modelConfig.provider, false); // cache read, no CLI calls
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [modelConfig.provider]);
@@ -335,7 +467,10 @@ export function ModelSettingsModal({
     openrouter: openRouterModels.map((m) => m.id),
     'builtin-ai': builtinAiModels.map((m) => m.name),
     'custom-openai': customOpenAIModel ? [customOpenAIModel] : [], // User specifies model manually
-    codex: ['default'], // Model is chosen by the Codex CLI itself
+    // Dynamic, backend-verified lists (see CliModelsSection / model_catalog).
+    // 'default' is always present = let the CLI/its config choose.
+    codex: cliModels.codex?.map((m) => m.id) ?? ['default'],
+    'claude-code': cliModels['claude-code']?.map((m) => m.id) ?? ['default'],
   };
 
   const requiresApiKey =
@@ -981,6 +1116,7 @@ export function ModelSettingsModal({
               <SelectContent className="max-h-64 overflow-y-auto">
                 <SelectItem value="builtin-ai">Built-in AI (Offline, No API needed)</SelectItem>
                 <SelectItem value="claude">Claude</SelectItem>
+                <SelectItem value="claude-code">Claude Code (Claude plan, no API key)</SelectItem>
                 <SelectItem value="codex">OpenAI Codex (ChatGPT plan, no API key)</SelectItem>
                 <SelectItem value="custom-openai">Custom Server (OpenAI)</SelectItem>
                 <SelectItem value="groq">Groq</SelectItem>
@@ -990,7 +1126,7 @@ export function ModelSettingsModal({
               </SelectContent>
             </Select>
 
-            {modelConfig.provider !== 'builtin-ai' && modelConfig.provider !== 'custom-openai' && modelConfig.provider !== 'codex' && (
+            {modelConfig.provider !== 'builtin-ai' && modelConfig.provider !== 'custom-openai' && (
               <Popover open={modelComboboxOpen} onOpenChange={setModelComboboxOpen} modal={true}>
                 <PopoverTrigger asChild>
                   <Button
@@ -1012,7 +1148,9 @@ export function ModelSettingsModal({
                       {(modelConfig.provider === 'openrouter' && isLoadingOpenRouter) ||
                        (modelConfig.provider === 'openai' && isLoadingOpenAI) ||
                        (modelConfig.provider === 'claude' && isLoadingClaude) ||
-                       (modelConfig.provider === 'groq' && isLoadingGroq) ? (
+                       (modelConfig.provider === 'groq' && isLoadingGroq) ||
+                       (modelConfig.provider === 'codex' && cliModelsLoading.codex) ||
+                       (modelConfig.provider === 'claude-code' && cliModelsLoading['claude-code']) ? (
                         <div className="py-6 text-center text-sm text-muted-foreground">
                           <RefreshCw className="mx-auto h-4 w-4 animate-spin mb-2" />
                           Loading models...
@@ -1276,6 +1414,17 @@ export function ModelSettingsModal({
                 Refresh
               </Button>
             </div>
+            <CliModelsSection
+              provider="codex"
+              connected={!!codexStatus?.connected}
+              models={cliModels.codex}
+              loading={cliModelsLoading.codex}
+              onRefresh={() => loadCliModels('codex', true)}
+              onValidated={(id) => {
+                setModelConfig((prev: ModelConfig) => ({ ...prev, model: id }));
+                loadCliModels('codex', false);
+              }}
+            />
             {codexAuthUrl ? (
               <div className="text-xs text-muted-foreground space-y-1">
                 <div>Browser didn&apos;t open? Use this sign-in link:</div>
@@ -1289,6 +1438,90 @@ export function ModelSettingsModal({
                     variant="ghost"
                     size="sm"
                     onClick={() => navigator.clipboard.writeText(codexAuthUrl)}
+                  >
+                    Copy
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        )}
+
+        {modelConfig.provider === 'claude-code' && (
+          <div className="space-y-3 border-t pt-4">
+            <div className="text-sm text-muted-foreground">
+              Summaries run through your local Claude Code CLI using your Claude
+              subscription — no API key, nothing stored by this app.
+            </div>
+            <div className="text-sm">
+              {claudeStatus === null ? (
+                'Checking Claude Code CLI...'
+              ) : claudeStatus.connected ? (
+                <span className="text-green-600">
+                  ✓ Connected{claudeStatus.user_email ? ` as ${claudeStatus.user_email}` : ''}
+                  {claudeStatus.subscription_type ? ` (${claudeStatus.subscription_type})` : ''}
+                </span>
+              ) : (
+                <span className="text-amber-600">{claudeStatus.detail ?? 'Not connected.'}</span>
+              )}
+            </div>
+            <div className="flex space-x-2">
+              {claudeStatus && !claudeStatus.cli_installed ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => refreshClaudeStatus()}
+                  disabled={claudeBusy}
+                >
+                  Re-check installation
+                </Button>
+              ) : claudeStatus && !claudeStatus.connected ? (
+                <Button type="button" onClick={() => signInClaude()} disabled={claudeBusy}>
+                  {claudeBusy ? 'Waiting for browser sign-in...' : 'Sign in with Claude'}
+                </Button>
+              ) : claudeStatus ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => signOutClaude()}
+                  disabled={claudeBusy}
+                >
+                  Sign out
+                </Button>
+              ) : null}
+              {claudeBusy ? (
+                <Button type="button" variant="outline" onClick={() => cancelClaudeSignIn()}>
+                  Cancel
+                </Button>
+              ) : null}
+              <Button type="button" variant="ghost" onClick={() => refreshClaudeStatus()}>
+                Refresh
+              </Button>
+            </div>
+            <CliModelsSection
+              provider="claude-code"
+              connected={!!claudeStatus?.connected}
+              models={cliModels['claude-code']}
+              loading={cliModelsLoading['claude-code']}
+              onRefresh={() => loadCliModels('claude-code', true)}
+              onValidated={(id) => {
+                setModelConfig((prev: ModelConfig) => ({ ...prev, model: id }));
+                loadCliModels('claude-code', false);
+              }}
+            />
+            {claudeAuthUrl ? (
+              <div className="text-xs text-muted-foreground space-y-1">
+                <div>Browser didn&apos;t open? Use this sign-in link:</div>
+                <div className="flex items-center space-x-2">
+                  <code className="truncate max-w-[280px]">{claudeAuthUrl}</code>
+                  <Button type="button" variant="outline" size="sm" onClick={() => openClaudeAuthUrl()}>
+                    Open
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => navigator.clipboard.writeText(claudeAuthUrl)}
                   >
                     Copy
                   </Button>

@@ -35,24 +35,26 @@ pub(crate) use perf_trace;
 // Re-export async logging macros for external use (removed due to macro conflicts)
 
 // Declare audio module
+pub mod activity;
 pub mod analytics;
+pub mod anthropic;
 pub mod api;
 pub mod audio;
-pub mod activity;
 pub mod claude_code;
+pub(crate) mod cli_proc;
 pub mod codex;
-pub mod connectors;
-pub mod export;
 pub mod config;
-pub mod gmeet_ingest;
+pub mod connectors;
+pub mod diarize_engine;
 pub mod console_utils;
 pub mod database;
+pub mod export;
+pub mod gmeet_ingest;
+pub mod groq;
 pub mod notifications;
 pub mod ollama;
 pub mod onboarding;
 pub mod openai;
-pub mod anthropic;
-pub mod groq;
 pub mod openrouter;
 pub mod parakeet_engine;
 pub mod platform;
@@ -62,7 +64,7 @@ pub mod tray;
 pub mod utils;
 pub mod whisper_engine;
 
-use audio::{list_audio_devices, AudioDevice, trigger_audio_permission};
+use audio::{list_audio_devices, trigger_audio_permission, AudioDevice};
 use log::{error as log_error, info as log_info};
 use notifications::commands::NotificationManagerState;
 use std::sync::Arc;
@@ -131,10 +133,7 @@ async fn start_recording<R: Runtime>(
             )
             .await
             {
-                log_error!(
-                    "Failed to show recording started notification: {}",
-                    e
-                );
+                log_error!("Failed to show recording started notification: {}", e);
             } else {
                 log_info!("Successfully showed recording started notification");
             }
@@ -192,10 +191,7 @@ async fn stop_recording<R: Runtime>(app: AppHandle<R>, args: RecordingArgs) -> R
             )
             .await
             {
-                log_error!(
-                    "Failed to show recording stopped notification: {}",
-                    e
-                );
+                log_error!("Failed to show recording stopped notification: {}", e);
             } else {
                 log_info!("Successfully showed recording stopped notification");
             }
@@ -364,10 +360,7 @@ async fn start_recording_with_devices_and_meeting<R: Runtime>(
             )
             .await
             {
-                log_error!(
-                    "Failed to show recording started notification: {}",
-                    e
-                );
+                log_error!("Failed to show recording started notification: {}", e);
             }
 
             Ok(())
@@ -423,7 +416,9 @@ pub fn run() {
             None::<notifications::manager::NotificationManager<tauri::Wry>>,
         )) as NotificationManagerState<tauri::Wry>)
         .manage(audio::init_system_audio_state())
-        .manage(summary::summary_engine::ModelManagerState(Arc::new(tokio::sync::Mutex::new(None))))
+        .manage(summary::summary_engine::ModelManagerState(Arc::new(
+            tokio::sync::Mutex::new(None),
+        )))
         .manage(gmeet_ingest::GmeetResumeState::default())
         .setup(|_app| {
             log::info!("Application setup complete");
@@ -440,12 +435,23 @@ pub fn run() {
                 gmeet_ingest::serve(app_for_gmeet).await;
             });
 
+            // Meetily-GM: register the native-messaging pairing host (doc 15)
+            // so the pinned extension can fetch the ingest token with zero
+            // user input. Best-effort: missing sidecar in dev is only a warn.
+            if let Err(e) = gmeet_ingest::native_host::install(_app.handle()) {
+                log::warn!("native-messaging host registration skipped: {e:#}");
+            }
+
             // Initialize notification system with proper defaults
             log::info!("Initializing notification system...");
             let app_for_notif = _app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let notif_state = app_for_notif.state::<NotificationManagerState<tauri::Wry>>();
-                match notifications::commands::initialize_notification_manager(app_for_notif.clone()).await {
+                match notifications::commands::initialize_notification_manager(
+                    app_for_notif.clone(),
+                )
+                .await
+                {
                     Ok(manager) => {
                         // Set default consent and permissions on first launch
                         if let Err(e) = manager.set_consent(true).await {
@@ -489,7 +495,11 @@ pub fn run() {
             // Initialize ModelManager for summary engine (async, non-blocking)
             let app_handle_for_model_manager = _app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                match summary::summary_engine::commands::init_model_manager_at_startup(&app_handle_for_model_manager).await {
+                match summary::summary_engine::commands::init_model_manager_at_startup(
+                    &app_handle_for_model_manager,
+                )
+                .await
+                {
                     Ok(_) => log::info!("ModelManager initialized successfully at startup"),
                     Err(e) => {
                         log::warn!("Failed to initialize ModelManager at startup: {}", e);
@@ -518,7 +528,10 @@ pub fn run() {
             log::info!("Initializing bundled templates directory...");
             if let Ok(resource_path) = _app.handle().path().resource_dir() {
                 let templates_dir = resource_path.join("templates");
-                log::info!("Setting bundled templates directory to: {:?}", templates_dir);
+                log::info!(
+                    "Setting bundled templates directory to: {:?}",
+                    templates_dir
+                );
                 summary::templates::set_bundled_templates_dir(templates_dir);
             } else {
                 log::warn!("Failed to resolve resource directory for templates");
@@ -709,6 +722,14 @@ pub fn run() {
             codex::commands::codex_status,
             codex::commands::codex_login_start,
             codex::commands::codex_logout,
+            claude_code::commands::claude_code_status,
+            claude_code::commands::claude_code_login_start,
+            claude_code::commands::claude_code_logout,
+            // Dynamic CLI model catalogs (validated model pickers)
+            summary::model_commands::codex_list_models,
+            summary::model_commands::codex_validate_model,
+            summary::model_commands::claude_list_models,
+            summary::model_commands::claude_validate_model,
             // Google Meet ingest (Meetily-GM)
             gmeet_ingest::gmeet_pairing_info,
             gmeet_ingest::gmeet_clear_resumable,
@@ -814,7 +835,9 @@ pub fn run() {
                                 log::info!("Database cleanup completed successfully");
                             }
                         } else {
-                            log::warn!("AppState not available for database cleanup (likely first launch)");
+                            log::warn!(
+                                "AppState not available for database cleanup (likely first launch)"
+                            );
                         }
 
                         // Clean up sidecar

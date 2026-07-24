@@ -7,12 +7,15 @@
 //! zero-extra-cost summary. Strictly for the signed-in user's own use on this
 //! device (see docs/product-plan/14-claude-code-provider.md §7).
 //!
-//! Scope note: this module ships the execution path (resolve + `claude --print`
-//! + summary entry point). The sign-in status/login Tauri commands + settings
-//! card are a follow-up, pending verification of the `claude` CLI's auth UX
-//! against a real binary (doc 14 §4.3) — guessing it here would risk a defect.
+//! Ships both the execution path (resolve + `claude --print` + summary entry
+//! point) and the auth path: the `auth` module wraps `claude auth
+//! status/login/logout` (verified against the real CLI) and `commands` exposes
+//! the matching Tauri status/login/logout for the settings card.
 
+pub mod auth;
+pub mod commands;
 pub mod exec;
+pub mod models;
 pub mod process;
 pub mod resolve;
 
@@ -56,8 +59,16 @@ pub struct ClaudeInstall {
 /// Async summary entry point used by the LLM client. Claude Code has a single
 /// prompt channel, so the system prompt is inlined ahead of the user prompt.
 /// Runs in `spawn_blocking`; honors the cancellation token (kills the child).
+/// Normalize a stored model choice into a CLI `--model` value: `None` for the
+/// sentinel "default"/empty, else the alias/name (e.g. `opus`, `sonnet`).
+pub(crate) fn model_flag(model: &str) -> Option<String> {
+    let m = model.trim();
+    (!m.is_empty() && !m.eq_ignore_ascii_case("default")).then(|| m.to_string())
+}
+
 pub async fn generate_with_claude_code(
     _app_data_dir: &Path,
+    model: &str,
     system_prompt: &str,
     user_prompt: &str,
     cancellation_token: Option<&CancellationToken>,
@@ -72,9 +83,12 @@ pub async fn generate_with_claude_code(
 
     let prompt = format!("{system_prompt}\n\n{user_prompt}");
     let token = cancellation_token.cloned();
+    let model = model_flag(model);
 
-    tokio::task::spawn_blocking(move || exec::exec_blocking(&install, &prompt, token.as_ref()))
-        .await
+    tokio::task::spawn_blocking(move || {
+        exec::exec_blocking(&install, &prompt, model.as_deref(), token.as_ref())
+    })
+    .await
         .map_err(|e| format!("claude task join error: {e}"))?
         .map_err(|e| match e {
             ClaudeCliError::NotLoggedIn => {
