@@ -1,7 +1,7 @@
 use log::{debug as log_debug, error as log_error, info as log_info, warn as log_warn};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tauri::{AppHandle, Runtime};
+use tauri::{AppHandle, Manager, Runtime};
 use tauri_plugin_store::StoreExt;
 
 use crate::{
@@ -10,10 +10,14 @@ use crate::{
         repositories::{
             meeting::MeetingsRepository, setting::SettingsRepository,
             transcript::TranscriptsRepository,
+            transcript_enhancement::TranscriptEnhancementRepository,
         },
     },
     state::AppState,
-    summary::CustomOpenAIConfig,
+    summary::{
+        transcript_enhancement::{enhance_saved_transcript, EnhancementSegment},
+        CustomOpenAIConfig,
+    },
 };
 
 // Hardcoded server URL
@@ -947,7 +951,7 @@ pub async fn api_save_meeting_title<R: Runtime>(
 
 #[tauri::command]
 pub async fn api_save_transcript<R: Runtime>(
-    _app: AppHandle<R>,
+    app: AppHandle<R>,
     state: tauri::State<'_, AppState>,
     meeting_title: String,
     transcripts: Vec<serde_json::Value>,
@@ -1005,6 +1009,50 @@ pub async fn api_save_transcript<R: Runtime>(
                 "Successfully saved transcript and created meeting with id: {}",
                 meeting_id
             );
+            let segments = transcripts_to_save
+                .iter()
+                .enumerate()
+                .map(|(index, segment)| EnhancementSegment {
+                    index,
+                    text: segment.text.clone(),
+                    timestamp: segment.timestamp.clone(),
+                    audio_start_time: segment.audio_start_time,
+                    audio_end_time: segment.audio_end_time,
+                    duration: segment.duration,
+                })
+                .collect::<Vec<_>>();
+            let app_data_dir = app.path().app_data_dir().ok();
+            match enhance_saved_transcript(pool, app_data_dir.as_ref(), &segments).await {
+                Ok(Some(texts)) => {
+                    match TranscriptEnhancementRepository::replace_texts(
+                        pool,
+                        &meeting_id,
+                        &texts,
+                    )
+                    .await
+                    {
+                        Ok(true) => log_info!(
+                            "Stored enhanced transcript for meeting_id: {}",
+                            meeting_id
+                        ),
+                        Ok(false) => log_warn!(
+                            "Skipped enhanced transcript due to segment count mismatch: {}",
+                            meeting_id
+                        ),
+                        Err(error) => log_warn!(
+                            "Failed to store enhanced transcript for {}: {}",
+                            meeting_id,
+                            error
+                        ),
+                    }
+                }
+                Ok(None) => log_info!("No configured AI; transcript enhancement skipped"),
+                Err(error) => log_warn!(
+                    "Transcript enhancement failed for {}; keeping original: {}",
+                    meeting_id,
+                    error
+                ),
+            }
             Ok(serde_json::json!({
                 "status": "success",
                 "message": "Transcript saved successfully",

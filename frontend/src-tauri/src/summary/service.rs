@@ -8,7 +8,6 @@ use crate::summary::processor::{
     extract_meeting_name_from_markdown, generate_meeting_summary, language_name_from_code,
 };
 use crate::summary::templates::{self, Template};
-use crate::summary::transcript_enhancement::{enhance_transcript, EnhancementContext};
 use crate::ollama::metadata::ModelMetadataCache;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
@@ -446,42 +445,6 @@ impl SummaryService {
         // Get app data directory for BuiltInAI provider
         let app_data_dir = _app.path().app_data_dir().ok();
 
-        let client = reqwest::Client::new();
-        let text = match enhance_transcript(
-            text,
-            EnhancementContext {
-                client: &client,
-                provider: &provider,
-                model_name: &model_name,
-                api_key: &final_api_key,
-                ollama_endpoint: ollama_endpoint.as_deref(),
-                custom_openai_endpoint: custom_openai_endpoint.as_deref(),
-                max_tokens: custom_openai_max_tokens,
-                temperature: custom_openai_temperature,
-                top_p: custom_openai_top_p,
-                app_data_dir: app_data_dir.as_ref(),
-                cancellation_token: &cancellation_token,
-                context_tokens: token_threshold,
-            },
-        )
-        .await
-        {
-            Ok(enhanced) => enhanced,
-            Err(_error) => {
-                info!("Transcript enhancement was cancelled for meeting_id: {}", meeting_id);
-                Self::cleanup_cancellation_token(&meeting_id);
-                if let Err(db_err) =
-                    SummaryProcessesRepository::update_process_cancelled(&pool, &meeting_id).await
-                {
-                    error!(
-                        "Failed to update DB status to cancelled for {}: {}",
-                        meeting_id, db_err
-                    );
-                }
-                return;
-            }
-        };
-
         if let Some(code) = &summary_language {
             info!("📝 Summary language preference: {}", code);
         }
@@ -547,6 +510,7 @@ impl SummaryService {
             }),
         };
 
+        let client = reqwest::Client::new();
         let result = generate_meeting_summary(
             &client,
             &provider,
