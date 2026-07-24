@@ -37,6 +37,7 @@ jobs:
         run: |
           mkdir -p binaries
           : > binaries/llama-helper-x86_64-pc-windows-msvc.exe
+          : > binaries/shenava-helper-x86_64-pc-windows-msvc.exe
           : > binaries/miting-pairing-host-x86_64-pc-windows-msvc.exe
       # Hard gate: logic tests must pass. Native audio/whisper/parakeet tests do
       # FFI device access and segfault on headless runners (0xc0000005) — they

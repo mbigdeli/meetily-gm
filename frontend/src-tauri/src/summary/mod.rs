@@ -50,6 +50,8 @@ pub mod template_vars;
 pub mod templates;
 pub mod templates_seed;
 pub mod templates_store;
+pub(crate) mod transcript_enhancement;
+mod transcript_enhancement_chunks;
 
 // Re-export Tauri commands (with their generated __cmd__ variants)
 pub use commands::{
