@@ -14,6 +14,33 @@ pub struct SaveModelConfigRequest {
     pub ollama_endpoint: Option<String>,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::SettingsRepository;
+
+    #[tokio::test]
+    async fn local_shenava_provider_does_not_require_an_api_key() {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:")
+            .await
+            .expect("in-memory database");
+        let key = SettingsRepository::get_transcript_api_key(&pool, "shenava")
+            .await
+            .expect("Shenava should be accepted as a local provider");
+        assert_eq!(key, None);
+    }
+
+    #[tokio::test]
+    async fn local_codex_provider_does_not_require_an_api_key() {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:")
+            .await
+            .expect("in-memory database");
+        let key = SettingsRepository::get_api_key(&pool, "codex")
+            .await
+            .expect("Codex should be accepted as a local provider");
+        assert_eq!(key, None);
+    }
+}
+
 #[derive(serde::Deserialize, Debug)]
 pub struct SaveTranscriptConfigRequest {
     pub provider: String,
@@ -24,7 +51,7 @@ pub struct SaveTranscriptConfigRequest {
 
 pub struct SettingsRepository;
 
-// Transcript providers: localWhisper, deepgram, elevenLabs, groq, openai
+// Transcript providers: localWhisper, parakeet, shenava, deepgram, elevenLabs, groq, openai
 // Summary providers: openai, claude, ollama, groq, added openrouter
 // NOTE: Handle data exclusion in the higher layer as this is database abstraction layer(using SELECT *)
 
@@ -85,7 +112,7 @@ impl SettingsRepository {
             "ollama" => "ollamaApiKey",
             "groq" => "groqApiKey",
             "openrouter" => "openRouterApiKey",
-            "builtin-ai" => return Ok(()), // No API key needed
+            "builtin-ai" | "codex" | "codex-cli" | "claude-code" => return Ok(()),
             _ => {
                 return Err(sqlx::Error::Protocol(
                     format!("Invalid provider: {}", provider).into(),
@@ -123,7 +150,7 @@ impl SettingsRepository {
             "groq" => "groqApiKey",
             "claude" => "anthropicApiKey",
             "openrouter" => "openRouterApiKey",
-            "builtin-ai" => return Ok(None), // No API key needed
+            "builtin-ai" | "codex" | "codex-cli" | "claude-code" => return Ok(None),
             _ => {
                 return Err(sqlx::Error::Protocol(
                     format!("Invalid provider: {}", provider).into(),
@@ -179,7 +206,7 @@ impl SettingsRepository {
     ) -> std::result::Result<(), sqlx::Error> {
         let api_key_column = match provider {
             "localWhisper" => "whisperApiKey",
-            "parakeet" => return Ok(()), // Parakeet doesn't need an API key, return early
+            "parakeet" | "shenava" => return Ok(()),
             "deepgram" => "deepgramApiKey",
             "elevenLabs" => "elevenLabsApiKey",
             "groq" => "groqApiKey",
@@ -211,7 +238,7 @@ impl SettingsRepository {
     ) -> std::result::Result<Option<String>, sqlx::Error> {
         let api_key_column = match provider {
             "localWhisper" => "whisperApiKey",
-            "parakeet" => return Ok(None), // Parakeet doesn't need an API key
+            "parakeet" | "shenava" => return Ok(None),
             "deepgram" => "deepgramApiKey",
             "elevenLabs" => "elevenLabsApiKey",
             "groq" => "groqApiKey",

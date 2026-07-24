@@ -7,10 +7,11 @@ import { Label } from './ui/label';
 import { Eye, EyeOff, Lock, Unlock } from 'lucide-react';
 import { ModelManager } from './WhisperModelManager';
 import { ParakeetModelManager } from './ParakeetModelManager';
+import { ShenavaModelManager } from './ShenavaModelManager';
 
 
 export interface TranscriptModelProps {
-    provider: 'localWhisper' | 'parakeet' | 'deepgram' | 'elevenLabs' | 'groq' | 'openai';
+    provider: 'localWhisper' | 'parakeet' | 'shenava' | 'deepgram' | 'elevenLabs' | 'groq' | 'openai';
     model: string;
     apiKey?: string | null;
 }
@@ -34,7 +35,7 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
     }, [transcriptModelConfig.provider]);
 
     useEffect(() => {
-        if (transcriptModelConfig.provider === 'localWhisper' || transcriptModelConfig.provider === 'parakeet') {
+        if (['localWhisper', 'parakeet', 'shenava'].includes(transcriptModelConfig.provider)) {
             setApiKey(null);
         }
     }, [transcriptModelConfig.provider]);
@@ -53,6 +54,7 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
     const modelOptions = {
         localWhisper: [], // Model selection handled by ModelManager component
         parakeet: [], // Model selection handled by ParakeetModelManager component
+        shenava: [], // Model selection handled by ShenavaModelManager component
         deepgram: ['nova-2-phonecall'],
         elevenLabs: ['eleven_multilingual_v2'],
         groq: ['llama-3.3-70b-versatile'],
@@ -95,6 +97,15 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
         }
     };
 
+    const handleShenavaModelSelect = (modelName: string) => {
+        setTranscriptModelConfig({
+            ...transcriptModelConfig,
+            provider: 'shenava',
+            model: modelName
+        });
+        onModelSelect?.();
+    };
+
     return (
         <div>
             <div>
@@ -112,7 +123,7 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
                                 onValueChange={(value) => {
                                     const provider = value as TranscriptModelProps['provider'];
                                     setUiProvider(provider);
-                                    if (provider !== 'localWhisper' && provider !== 'parakeet') {
+                                    if (!['localWhisper', 'parakeet', 'shenava'].includes(provider)) {
                                         fetchApiKey(provider);
                                     }
                                 }}
@@ -123,6 +134,7 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
                                 <SelectContent>
                                     <SelectItem value="parakeet">⚡ Parakeet (Recommended - Real-time / Accurate)</SelectItem>
                                     <SelectItem value="localWhisper">🏠 Local Whisper (High Accuracy)</SelectItem>
+                                    <SelectItem value="shenava">🇮🇷 Shenava (Persian · Non-commercial)</SelectItem>
                                     {/* <SelectItem value="deepgram">☁️ Deepgram (Backup)</SelectItem>
                                     <SelectItem value="elevenLabs">☁️ ElevenLabs</SelectItem>
                                     <SelectItem value="groq">☁️ Groq</SelectItem>
@@ -130,7 +142,7 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
                                 </SelectContent>
                             </Select>
 
-                            {uiProvider !== 'localWhisper' && uiProvider !== 'parakeet' && (
+                            {!['localWhisper', 'parakeet', 'shenava'].includes(uiProvider) && (
                                 <Select
                                     value={transcriptModelConfig.model}
                                     onValueChange={(value) => {
@@ -168,6 +180,15 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
                                 selectedModel={transcriptModelConfig.provider === 'parakeet' ? transcriptModelConfig.model : undefined}
                                 onModelSelect={handleParakeetModelSelect}
                                 autoSave={true}
+                            />
+                        </div>
+                    )}
+
+                    {uiProvider === 'shenava' && (
+                        <div className="mt-6">
+                            <ShenavaModelManager
+                                selectedModel={transcriptModelConfig.provider === 'shenava' ? transcriptModelConfig.model : undefined}
+                                onModelSelect={handleShenavaModelSelect}
                             />
                         </div>
                     )}

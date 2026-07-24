@@ -101,13 +101,16 @@ fn spawn_rank(path: &Path) -> Option<u8> {
     }
 }
 
-/// Pick the most spawnable candidate (pure; unit-tested).
+/// Pick the first spawnable candidate in PATH order (pure; unit-tested).
+///
+/// PATH precedence matters on Windows: a later Microsoft Store `codex.exe`
+/// can be visible to `where` but blocked for child processes, while the
+/// earlier npm `codex.cmd` expands to a directly spawnable vendored binary.
 fn pick_best_candidate(candidates: &[PathBuf]) -> Option<PathBuf> {
     candidates
         .iter()
-        .filter_map(|p| spawn_rank(p).map(|rank| (rank, p)))
-        .min_by_key(|(rank, _)| *rank)
-        .map(|(_, p)| p.clone())
+        .find(|path| spawn_rank(path).is_some())
+        .cloned()
 }
 
 /// Query `codex --version`, best-effort.
@@ -698,14 +701,14 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn pick_best_candidate_prefers_exe_over_cmd() {
+    fn pick_best_candidate_preserves_path_precedence() {
         let candidates = vec![
             PathBuf::from("C:\\a\\codex.cmd"),
             PathBuf::from("C:\\b\\codex.exe"),
         ];
         assert_eq!(
             pick_best_candidate(&candidates),
-            Some(PathBuf::from("C:\\b\\codex.exe"))
+            Some(PathBuf::from("C:\\a\\codex.cmd"))
         );
     }
 

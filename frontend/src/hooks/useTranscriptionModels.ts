@@ -8,7 +8,7 @@ export interface RawModelInfo {
 }
 
 export interface ModelOption {
-  provider: 'whisper' | 'parakeet';
+  provider: 'whisper' | 'parakeet' | 'shenava';
   name: string;
   displayName: string;
   size_mb: number;
@@ -77,6 +77,22 @@ export function useTranscriptionModels(transcriptModelConfig: TranscriptModelCon
       console.error('Failed to fetch Parakeet models:', err);
     }
 
+    try {
+      const shenavaModels = await invoke<RawModelInfo[]>('shenava_get_available_models');
+      allModels.push(
+        ...shenavaModels
+          .filter((m) => m.status === 'Available')
+          .map((m) => ({
+            provider: 'shenava' as const,
+            name: m.name,
+            displayName: `🇮🇷 Shenava: ${m.name}`,
+            size_mb: m.size_mb,
+          })),
+      );
+    } catch (err) {
+      console.error('Failed to fetch Shenava models:', err);
+    }
+
     setAvailableModels(allModels);
 
     // Set default model based on user's saved configuration
@@ -88,7 +104,8 @@ export function useTranscriptionModels(transcriptModelConfig: TranscriptModelCon
     const configuredMatch = allModels.find(
       (m) =>
         (configuredProvider === 'localWhisper' && m.provider === 'whisper' && m.name === configuredModel) ||
-        (configuredProvider === 'parakeet' && m.provider === 'parakeet' && m.name === configuredModel)
+        (configuredProvider === 'parakeet' && m.provider === 'parakeet' && m.name === configuredModel) ||
+        (configuredProvider === 'shenava' && m.provider === 'shenava' && m.name === configuredModel)
     );
 
     // Only set default model if user hasn't manually selected one

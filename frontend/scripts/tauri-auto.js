@@ -39,6 +39,38 @@ console.log(''); // Empty line for spacing
 // Platform-specific environment variables
 const platform = os.platform();
 const env = { ...process.env };
+const repoRoot = path.resolve(__dirname, '..', '..');
+const helperProfile = command === 'build' ? 'release' : 'debug';
+const architecture = os.arch() === 'arm64' ? 'aarch64' : 'x86_64';
+const suffix = platform === 'win32'
+  ? 'pc-windows-msvc.exe'
+  : platform === 'darwin'
+    ? 'apple-darwin'
+    : 'unknown-linux-gnu';
+
+function buildAndBundleRustBin(crateDir, binName, envVar) {
+  const manifest = path.join(repoRoot, crateDir, 'Cargo.toml');
+  const exeName = platform === 'win32' ? `${binName}.exe` : binName;
+  const builtPath = path.join(repoRoot, crateDir, 'target', helperProfile, exeName);
+  const bundledPath = path.join(
+    repoRoot,
+    'frontend',
+    'src-tauri',
+    'binaries',
+    `${binName}-${architecture}-${suffix}`
+  );
+
+  console.log(`Building ${binName} sidecar...`);
+  execSync(
+    `cargo build --manifest-path "${manifest}"${command === 'build' ? ' --release' : ''}`,
+    { stdio: 'inherit', env }
+  );
+  fs.copyFileSync(builtPath, bundledPath);
+  if (envVar) env[envVar] = builtPath;
+}
+
+buildAndBundleRustBin('shenava-helper', 'shenava-helper', 'SHENAVA_HELPER_PATH');
+buildAndBundleRustBin('pairing-host', 'miting-pairing-host');
 
 if (platform === 'linux' && feature === 'cuda') {
   console.log('🐧 Linux/CUDA detected: Setting CMAKE flags for NVIDIA GPU');

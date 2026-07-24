@@ -646,6 +646,18 @@ pub async fn stop_recording<R: Runtime>(
     };
 
     match config.as_deref() {
+        Some("shenava") => {
+            info!("Unloading Shenava model...");
+            let engine = crate::shenava_engine::commands::SHENAVA_ENGINE
+                .lock()
+                .ok()
+                .and_then(|guard| guard.as_ref().cloned());
+            if let Some(engine) = engine {
+                if engine.unload_model().await {
+                    info!("Shenava model unloaded successfully");
+                }
+            }
+        }
         Some("parakeet") => {
             info!("🦜 Unloading Parakeet model...");
             let engine_clone = {

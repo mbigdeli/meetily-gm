@@ -100,7 +100,8 @@
         "externalBin": [
             "binaries/llama-helper",
             "binaries/ffmpeg",
-            "binaries/miting-pairing-host"
+            "binaries/miting-pairing-host",
+            "binaries/shenava-helper"
         ],
         "macOS": {
             "entitlements": "entitlements.plist",
