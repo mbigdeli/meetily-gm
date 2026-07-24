@@ -57,6 +57,7 @@ pub mod openai;
 pub mod openrouter;
 pub mod parakeet_engine;
 pub mod platform;
+pub mod shenava_engine;
 pub mod state;
 pub mod summary;
 pub mod tray;
@@ -484,6 +485,13 @@ pub fn run() {
                 }
             });
 
+            shenava_engine::commands::set_models_directory(&_app.handle());
+            tauri::async_runtime::spawn(async {
+                if let Err(e) = shenava_engine::commands::shenava_init().await {
+                    log::error!("Failed to initialize Shenava engine on startup: {}", e);
+                }
+            });
+
             // Initialize ModelManager for summary engine (async, non-blocking)
             let app_handle_for_model_manager = _app.handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -602,6 +610,19 @@ pub fn run() {
             parakeet_engine::commands::parakeet_cancel_download,
             parakeet_engine::commands::parakeet_delete_corrupted_model,
             parakeet_engine::commands::open_parakeet_models_folder,
+            // Shenava Persian ASR commands
+            shenava_engine::commands::shenava_init,
+            shenava_engine::commands::shenava_get_available_models,
+            shenava_engine::commands::shenava_load_model,
+            shenava_engine::commands::shenava_get_current_model,
+            shenava_engine::commands::shenava_is_model_loaded,
+            shenava_engine::commands::shenava_has_available_models,
+            shenava_engine::commands::shenava_validate_model_ready,
+            shenava_engine::commands::shenava_transcribe_audio,
+            shenava_engine::commands::shenava_get_models_directory,
+            shenava_engine::commands::shenava_download_model,
+            shenava_engine::commands::shenava_delete_model,
+            audio::transcription::engine::transcription_validate_model_ready,
             // Parallel processing commands
             whisper_engine::parallel_commands::initialize_parallel_processor,
             whisper_engine::parallel_commands::start_parallel_processing,

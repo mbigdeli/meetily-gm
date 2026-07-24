@@ -39,6 +39,38 @@ console.log(''); // Empty line for spacing
 // Platform-specific environment variables
 const platform = os.platform();
 const env = { ...process.env };
+const repoRoot = path.resolve(__dirname, '..', '..');
+const helperManifest = path.join(repoRoot, 'shenava-helper', 'Cargo.toml');
+const helperProfile = command === 'build' ? 'release' : 'debug';
+const helperName = platform === 'win32' ? 'shenava-helper.exe' : 'shenava-helper';
+const helperPath = path.join(
+  repoRoot,
+  'shenava-helper',
+  'target',
+  helperProfile,
+  helperName
+);
+
+console.log('Building isolated Shenava speech engine...');
+execSync(
+  `cargo build --manifest-path "${helperManifest}"${command === 'build' ? ' --release' : ''}`,
+  { stdio: 'inherit', env }
+);
+env.SHENAVA_HELPER_PATH = helperPath;
+const architecture = os.arch() === 'arm64' ? 'aarch64' : 'x86_64';
+const suffix = platform === 'win32'
+  ? 'pc-windows-msvc.exe'
+  : platform === 'darwin'
+    ? 'apple-darwin'
+    : 'unknown-linux-gnu';
+const bundledHelper = path.join(
+  repoRoot,
+  'frontend',
+  'src-tauri',
+  'binaries',
+  `shenava-helper-${architecture}-${suffix}`
+);
+fs.copyFileSync(helperPath, bundledHelper);
 
 if (platform === 'linux' && feature === 'cuda') {
   console.log('🐧 Linux/CUDA detected: Setting CMAKE flags for NVIDIA GPU');

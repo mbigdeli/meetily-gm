@@ -268,6 +268,7 @@ export const TranscriptView: React.FC<TranscriptViewProps> = ({ transcripts, isR
         // Show [Silence] ONLY if the ORIGINAL transcript was empty (not just after filtering)
         const originalWasEmpty = transcript.text.trim() === '';
         const displayText = originalWasEmpty && !isStreaming ? '[Silence]' : filteredText;
+        const rtl = /[\u0600-\u06FF]/.test(displayText);
 
         // Sizer text: use cleaned version for proper sizing, fallback to [Silence] only if original was empty
         const sizerText = cleanStopWords(isStreaming ? streamingTranscript.fullText : transcript.text)
@@ -304,7 +305,10 @@ export const TranscriptView: React.FC<TranscriptViewProps> = ({ transcripts, isR
                   )}
                 </TooltipContent>
               </Tooltip>
-              <div className="flex-1">
+              <div
+                className={`flex-1 ${rtl ? 'text-right' : 'text-left'}`}
+                dir={rtl ? 'rtl' : 'ltr'}
+              >
                 {isStreaming ? (
                   // Streaming transcript - show in bubble (full width)
                   <div className="bg-gray-100 border border-gray-200 rounded-lg px-3 py-2">

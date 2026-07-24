@@ -77,12 +77,7 @@ pub async fn validate_transcription_model_ready<R: Runtime>(app: &AppHandle<R>) 
             }
         }
         Err(e) => {
-            warn!("⚠️ Failed to get transcript config: {}, defaulting to parakeet", e);
-            crate::api::api::TranscriptConfig {
-                provider: "parakeet".to_string(),
-                model: crate::config::DEFAULT_PARAKEET_MODEL.to_string(),
-                api_key: None,
-            }
+            return Err(format!("Failed to read the selected transcription model: {e}"));
         }
     };
 
@@ -135,14 +130,27 @@ pub async fn validate_transcription_model_ready<R: Runtime>(app: &AppHandle<R>) 
                 }
             }
         }
+        "shenava" => {
+            info!("Validating Shenava model...");
+            super::shenava_provider::validate_model(&config.model)
+                .await
+                .map(|_| ())
+        }
         other => {
             warn!("❌ Unsupported transcription provider for local recording: {}", other);
             Err(format!(
-                "Provider '{}' is not supported for local transcription. Please select 'localWhisper' or 'parakeet'.",
+                "Provider '{}' is not supported for local transcription. Please select Whisper, Parakeet, or Shenava.",
                 other
             ))
         }
     }
+}
+
+#[tauri::command]
+pub async fn transcription_validate_model_ready<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<(), String> {
+    validate_transcription_model_ready(&app).await
 }
 
 /// Get or initialize the appropriate transcription engine based on provider configuration
@@ -173,12 +181,7 @@ pub async fn get_or_init_transcription_engine<R: Runtime>(
             }
         }
         Err(e) => {
-            warn!("⚠️ Failed to get transcript config: {}, defaulting to parakeet", e);
-            crate::api::api::TranscriptConfig {
-                provider: "parakeet".to_string(),
-                model: crate::config::DEFAULT_PARAKEET_MODEL.to_string(),
-                api_key: None,
-            }
+            return Err(format!("Failed to read the selected transcription model: {e}"));
         }
     };
 
@@ -211,6 +214,12 @@ pub async fn get_or_init_transcription_engine<R: Runtime>(
                     Err("Parakeet engine not initialized. This should not happen after validation.".to_string())
                 }
             }
+        }
+        "shenava" => {
+            info!("Initializing Shenava transcription engine");
+            Ok(TranscriptionEngine::Provider(
+                super::shenava_provider::loaded_provider().await?,
+            ))
         }
         "localWhisper" | _ => {
             info!("🎤 Initializing Whisper transcription engine");

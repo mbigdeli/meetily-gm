@@ -277,6 +277,10 @@ Thanks for all the contributions. Our community is what makes this project possi
 
 MIT License - Feel free to use this project for your own purposes.
 
+Optional Shenava v1.0 model weights are a separate dependency licensed under
+**CC-BY-NC-4.0**. They require attribution and may not be used commercially
+without separate permission. See [Shenava model licensing](docs/shenava-models.md).
+
 ## Acknowledgments
 
 - We borrowed some code from [Whisper.cpp](https://github.com/ggerganov/whisper.cpp).
@@ -284,6 +288,7 @@ MIT License - Feel free to use this project for your own purposes.
 - We borrowed some code from [transcribe-rs](https://crates.io/crates/transcribe-rs).
 - Thanks to **NVIDIA** for developing the **Parakeet** model.
 - Thanks to [istupakov](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx) for providing the **ONNX conversion** of the Parakeet model.
+- Thanks to [Reza Sayar](https://huggingface.co/Reza2kn) for the **Shenava** Persian ASR models.
 
 ## Star History
 

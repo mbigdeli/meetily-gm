@@ -99,6 +99,7 @@
         ],
         "externalBin": [
             "binaries/llama-helper",
+            "binaries/shenava-helper",
             "binaries/ffmpeg"
         ],
         "macOS": {

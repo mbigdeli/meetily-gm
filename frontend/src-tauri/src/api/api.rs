@@ -481,6 +481,18 @@ pub async fn api_get_model_config<R: Runtime>(
                 &config.whisper_model,
                 &config.ollama_endpoint
             );
+            if matches!(
+                config.provider.as_str(),
+                "builtin-ai" | "codex" | "codex-cli" | "claude-code"
+            ) {
+                return Ok(Some(ModelConfig {
+                    provider: config.provider,
+                    model: config.model,
+                    whisper_model: config.whisper_model,
+                    api_key: None,
+                    ollama_endpoint: config.ollama_endpoint,
+                }));
+            }
             match SettingsRepository::get_api_key(pool, &config.provider).await {
                 Ok(api_key) => {
                     log_info!("Successfully retrieved model config and API key.");
@@ -612,6 +624,13 @@ pub async fn api_get_transcript_config<R: Runtime>(
                 &config.provider,
                 &config.model
             );
+            if matches!(config.provider.as_str(), "localWhisper" | "parakeet" | "shenava") {
+                return Ok(Some(TranscriptConfig {
+                    provider: config.provider,
+                    model: config.model,
+                    api_key: None,
+                }));
+            }
             match SettingsRepository::get_transcript_api_key(pool, &config.provider).await {
                 Ok(api_key) => {
                     log_info!("Successfully retrieved transcript config and API key.");

@@ -505,6 +505,13 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     );
   }, []);
 
+  // Shenava models are Persian-only. Keep UI, persisted preference, and Rust in sync.
+  useEffect(() => {
+    if (transcriptModelConfig.provider === 'shenava' && selectedLanguage !== 'fa') {
+      handleSetSelectedLanguage('fa');
+    }
+  }, [transcriptModelConfig.provider, selectedLanguage, handleSetSelectedLanguage]);
+
   const value: ConfigContextType = useMemo(() => ({
     modelConfig,
     setModelConfig,

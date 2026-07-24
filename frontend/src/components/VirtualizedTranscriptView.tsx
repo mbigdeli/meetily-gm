@@ -63,6 +63,10 @@ function cleanStopWords(text: string): string {
     return cleanedText.replace(/\s+/g, ' ').trim();
 }
 
+function isRtlText(text: string): boolean {
+    return /[\u0600-\u06FF]/.test(text);
+}
+
 // Memoized transcript segment component
 const TranscriptSegment = memo(function TranscriptSegment({
     id,
@@ -80,6 +84,7 @@ const TranscriptSegment = memo(function TranscriptSegment({
     showConfidence: boolean;
 }) {
     const displayText = cleanStopWords(text) || (text.trim() === '' ? '[Silence]' : text);
+    const rtl = isRtlText(displayText);
 
     return (
         <div id={`segment-${id}`} className="mb-3">
@@ -96,7 +101,10 @@ const TranscriptSegment = memo(function TranscriptSegment({
                         )}
                     </TooltipContent>
                 </Tooltip>
-                <div className="flex-1">
+                <div
+                    className={`flex-1 ${rtl ? 'text-right' : 'text-left'}`}
+                    dir={rtl ? 'rtl' : 'ltr'}
+                >
                     {isStreaming ? (
                         <div className="bg-gray-100 border border-gray-200 rounded-lg px-3 py-2">
                             <p className="text-base text-gray-800 leading-relaxed">{displayText}</p>
