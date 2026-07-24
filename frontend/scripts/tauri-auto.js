@@ -51,7 +51,8 @@ const suffix = platform === 'win32'
 function buildAndBundleRustBin(crateDir, binName, envVar) {
   const manifest = path.join(repoRoot, crateDir, 'Cargo.toml');
   const exeName = platform === 'win32' ? `${binName}.exe` : binName;
-  const builtPath = path.join(repoRoot, crateDir, 'target', helperProfile, exeName);
+  const crateTargetPath = path.join(repoRoot, crateDir, 'target', helperProfile, exeName);
+  const workspaceTargetPath = path.join(repoRoot, 'target', helperProfile, exeName);
   const bundledPath = path.join(
     repoRoot,
     'frontend',
@@ -65,6 +66,7 @@ function buildAndBundleRustBin(crateDir, binName, envVar) {
     `cargo build --manifest-path "${manifest}"${command === 'build' ? ' --release' : ''}`,
     { stdio: 'inherit', env }
   );
+  const builtPath = fs.existsSync(crateTargetPath) ? crateTargetPath : workspaceTargetPath;
   fs.copyFileSync(builtPath, bundledPath);
   if (envVar) env[envVar] = builtPath;
 }
