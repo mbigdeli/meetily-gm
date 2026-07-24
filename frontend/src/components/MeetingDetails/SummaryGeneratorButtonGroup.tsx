@@ -36,7 +36,6 @@ interface SummaryGeneratorButtonGroupProps {
   availableTemplates: Array<{ id: string, name: string, description: string }>;
   selectedTemplate: string;
   onTemplateSelect: (templateId: string, templateName: string) => void;
-  hasTranscripts?: boolean;
   hasSummary?: boolean;
   isModelConfigLoading?: boolean;
   onOpenModelSettings?: (openFn: () => void) => void;
@@ -53,7 +52,6 @@ export function SummaryGeneratorButtonGroup({
   availableTemplates,
   selectedTemplate,
   onTemplateSelect,
-  hasTranscripts = true,
   hasSummary = false,
   isModelConfigLoading = false,
   onOpenModelSettings,
@@ -78,10 +76,6 @@ export function SummaryGeneratorButtonGroup({
       onOpenModelSettings(openDialog);
     }
   }, [onOpenModelSettings]);
-
-  if (!hasTranscripts) {
-    return null;
-  }
 
   const checkBuiltInAIModelsAndGenerate = async () => {
     setIsCheckingModels(true);

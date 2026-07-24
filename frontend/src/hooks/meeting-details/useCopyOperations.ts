@@ -26,29 +26,18 @@ export function useCopyOperations({
     try {
       console.log('📊 Fetching all transcripts for copying:', meetingId);
 
-      // First, get total count by fetching first page
-      const firstPage = await invokeTauri('api_get_meeting_transcripts', {
+      const preferredTranscript = await invokeTauri('api_get_preferred_meeting_transcript', {
         meetingId,
-        limit: 1,
-        offset: 0,
-      }) as { transcripts: Transcript[]; total_count: number; has_more: boolean };
+      }) as { transcripts: Transcript[]; source: 'speaker_attributed' | 'raw' };
 
-      const totalCount = firstPage.total_count;
-      console.log(`📊 Total transcripts in database: ${totalCount}`);
+      const totalCount = preferredTranscript.transcripts.length;
+      console.log(`📊 Preferred transcript source: ${preferredTranscript.source}; segments: ${totalCount}`);
 
       if (totalCount === 0) {
         return [];
       }
 
-      // Fetch all transcripts in one call
-      const allData = await invokeTauri('api_get_meeting_transcripts', {
-        meetingId,
-        limit: totalCount,
-        offset: 0,
-      }) as { transcripts: Transcript[]; total_count: number; has_more: boolean };
-
-      console.log(`✅ Fetched ${allData.transcripts.length} transcripts from database for copying`);
-      return allData.transcripts;
+      return preferredTranscript.transcripts;
     } catch (error) {
       console.error('❌ Error fetching all transcripts:', error);
       toast.error('Failed to fetch transcripts for copying');

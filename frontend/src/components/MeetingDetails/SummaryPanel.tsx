@@ -21,6 +21,7 @@ import {
   saveMeetingSummaryLanguage,
   SummaryLanguageStorage,
 } from '@/lib/summary-language-preferences';
+import { hasRenderableSummary } from '@/lib/summary-content-state.mjs';
 
 interface SummaryPanelProps {
   meeting: {
@@ -251,6 +252,7 @@ export function SummaryPanel({
       </PopoverContent>
     </Popover>
   );
+  const hasSummaryContent = hasRenderableSummary(aiSummary);
 
   return (
     <div className="flex-1 min-w-0 flex flex-col bg-white overflow-hidden">
@@ -265,7 +267,7 @@ export function SummaryPanel({
         /> */}
 
         {/* Button groups - only show when summary exists */}
-        {aiSummary && !isSummaryLoading && (
+        {hasSummaryContent && !isSummaryLoading && (
           <div className="flex items-center justify-center w-full pt-0 gap-2">
             {/* Left-aligned: Summary Generator Button Group */}
             <div className="flex-shrink-0">
@@ -280,8 +282,7 @@ export function SummaryPanel({
                 availableTemplates={availableTemplates}
                 selectedTemplate={selectedTemplate}
                 onTemplateSelect={onTemplateSelect}
-                hasTranscripts={transcripts.length > 0}
-                hasSummary={!!aiSummary}
+                hasSummary={hasSummaryContent}
                 isModelConfigLoading={isModelConfigLoading}
                 onOpenModelSettings={onOpenModelSettings}
                 languageSlot={languageSlot}
@@ -300,7 +301,7 @@ export function SummaryPanel({
                   console.log('Find in summary clicked');
                 }}
                 onOpenFolder={onOpenFolder}
-                hasSummary={!!aiSummary}
+                hasSummary={hasSummaryContent}
               />
             </div>
           </div>
@@ -322,7 +323,6 @@ export function SummaryPanel({
               availableTemplates={availableTemplates}
               selectedTemplate={selectedTemplate}
               onTemplateSelect={onTemplateSelect}
-              hasTranscripts={transcripts.length > 0}
               isModelConfigLoading={isModelConfigLoading}
               onOpenModelSettings={onOpenModelSettings}
             />
@@ -335,7 +335,7 @@ export function SummaryPanel({
             </div>
           </div>
         </div>
-      ) : !aiSummary ? (
+      ) : !hasSummaryContent ? (
         <div className="flex flex-col h-full">
           {/* Centered Summary Generator Button Group when no summary */}
           <div className="flex items-center justify-center gap-2 pt-8 pb-4">
@@ -350,7 +350,6 @@ export function SummaryPanel({
               availableTemplates={availableTemplates}
               selectedTemplate={selectedTemplate}
               onTemplateSelect={onTemplateSelect}
-              hasTranscripts={transcripts.length > 0}
               hasSummary={false}
               isModelConfigLoading={isModelConfigLoading}
               onOpenModelSettings={onOpenModelSettings}
@@ -364,7 +363,7 @@ export function SummaryPanel({
             isGenerating={isSummaryLoading}
           />
         </div>
-      ) : transcripts?.length > 0 && (
+      ) : (
         <div className="flex-1 overflow-y-auto min-h-0">
           {summaryResponse && (
             <div className="fixed bottom-0 left-0 right-0 bg-white shadow-lg p-4 max-h-1/3 overflow-y-auto">

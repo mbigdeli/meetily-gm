@@ -97,7 +97,9 @@ export function TranscriptPanel({
       {/* Title area */}
       <div className="p-4 border-b border-gray-200">
         <TranscriptButtonGroup
-          transcriptCount={usePagination ? (totalCount ?? convertedSegments.length) : (transcripts?.length || 0)}
+          transcriptCount={hasDiarized
+            ? diarized.length
+            : usePagination ? (totalCount ?? convertedSegments.length) : (transcripts?.length || 0)}
           onCopyTranscript={onCopyTranscript}
           onOpenMeetingFolder={onOpenMeetingFolder}
           meetingId={meetingId}
@@ -137,7 +139,7 @@ export function TranscriptPanel({
       </div>
 
       {/* Custom prompt input at bottom of transcript section */}
-      {!isRecording && convertedSegments.length > 0 && (
+      {!isRecording && (convertedSegments.length > 0 || hasDiarized) && (
         <div className="p-1 border-t border-gray-200">
           <textarea
             placeholder="Add context for AI summary. For example people involved, meeting overview, objective etc..."

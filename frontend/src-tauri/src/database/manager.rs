@@ -46,6 +46,16 @@ impl DatabaseManager {
             log::warn!("prompt-studio template seed failed (non-fatal): {e}");
         }
 
+        match crate::database::repositories::summary_recovery::recover_interrupted_summaries(&pool)
+            .await
+        {
+            Ok(0) => {}
+            Ok(count) => log::warn!(
+                "Recovered {count} interrupted summary process(es) from the previous app run"
+            ),
+            Err(e) => log::warn!("interrupted summary recovery failed (non-fatal): {e}"),
+        }
+
         Ok(DatabaseManager { pool })
     }
 
